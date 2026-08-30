@@ -9,6 +9,8 @@ import { buttonClass } from "@/components/ui/button";
 import { inputClass } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, Thead, Th, Tr, Td, EmptyRow } from "@/components/ui/table";
+import { SaveReportCard } from "./report-card";
+import { saveGameRegionAndReport, type SaveRegionResult } from "./actions";
 
 interface SearchResult {
   appId: number;
@@ -37,10 +39,10 @@ interface RegionalPriceReport {
   cheapest: RegionalPrice | null;
 }
 
-// No login required — this only reads Steam's own public prices, nothing
-// account-specific or costly. Search a title, pick the right App ID (Steam
-// reuses names across re-releases, so don't skip this step), see every
-// region's price converted to one currency, cheapest first.
+// No login required to search and view prices — this only reads Steam's
+// own public prices, nothing account-specific or costly. Choosing a
+// region and saving it, though, needs the admin password (see actions.ts)
+// since that writes to the database.
 export default function PricesPage() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[] | null>(null);
@@ -49,12 +51,16 @@ export default function PricesPage() {
   const [loadingPrices, setLoadingPrices] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [savingCountry, setSavingCountry] = useState<string | null>(null);
+  const [saveResult, setSaveResult] = useState<SaveRegionResult | null>(null);
+
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
     if (!query.trim()) return;
     setSearching(true);
     setError(null);
     setReport(null);
+    setSaveResult(null);
     try {
       const res = await fetch(`/api/steam-search?q=${encodeURIComponent(query)}`);
       const body = await res.json();
@@ -71,6 +77,7 @@ export default function PricesPage() {
     setLoadingPrices(true);
     setError(null);
     setReport(null);
+    setSaveResult(null);
     try {
       const res = await fetch(`/api/steam-price/${appId}?currency=EGP`);
       const body = await res.json();
@@ -83,15 +90,27 @@ export default function PricesPage() {
     }
   }
 
+  async function handleChooseRegion(countryCode: string) {
+    if (!report) return;
+    setSavingCountry(countryCode);
+    setSaveResult(null);
+    try {
+      const result = await saveGameRegionAndReport(report.steamAppId, countryCode);
+      setSaveResult(result);
+    } finally {
+      setSavingCountry(null);
+    }
+  }
+
   const sortedPrices = report?.prices
     .slice()
     .sort((a, b) => (a.convertedFinal ?? Infinity) - (b.convertedFinal ?? Infinity));
 
   return (
-    <div className="mx-auto max-w-4xl px-8 py-10">
+    <div className="mx-auto max-w-6xl px-8 py-10">
       <PageHeader
         title="Steam Prices"
-        description="Search a game, pick the right one, see its cheapest region."
+        description="Search a game, pick the right one, choose a region, save it."
       />
 
       <form onSubmit={handleSearch} className="flex gap-2">
@@ -161,7 +180,10 @@ export default function PricesPage() {
       {report && (
         <div className="mt-6">
           <button
-            onClick={() => setReport(null)}
+            onClick={() => {
+              setReport(null);
+              setSaveResult(null);
+            }}
             className="mb-4 flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
@@ -183,6 +205,8 @@ export default function PricesPage() {
             </div>
           )}
 
+          {saveResult && <SaveReportCard saveResult={saveResult} />}
+
           <div className="mt-4">
             <Table>
               <Thead>
@@ -193,6 +217,7 @@ export default function PricesPage() {
                   <Th align="right">Discount</Th>
                   <Th align="right">Before, in {report.comparisonCurrency}</Th>
                   <Th align="right">Now, in {report.comparisonCurrency}</Th>
+                  <Th align="right">Choose</Th>
                 </tr>
               </Thead>
               <tbody>
@@ -228,10 +253,25 @@ export default function PricesPage() {
                         {p.convertedFinal !== null ? p.convertedFinal : "—"}
                       </span>
                     </Td>
+                    <Td align="right">
+                      {p.available && !p.isFree && (
+                        <button
+                          onClick={() => handleChooseRegion(p.country)}
+                          disabled={savingCountry !== null}
+                          className={buttonClass("secondary", "sm", "disabled:opacity-50")}
+                        >
+                          {savingCountry === p.country ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            "Choose"
+                          )}
+                        </button>
+                      )}
+                    </Td>
                   </Tr>
                 ))}
                 {sortedPrices?.length === 0 && (
-                  <EmptyRow colSpan={6}>No regions checked.</EmptyRow>
+                  <EmptyRow colSpan={7}>No regions checked.</EmptyRow>
                 )}
               </tbody>
             </Table>

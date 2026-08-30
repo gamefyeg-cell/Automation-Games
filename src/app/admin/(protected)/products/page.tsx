@@ -1,8 +1,8 @@
 import { Star } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { PageHeader } from "@/components/ui/page-header";
-import { Badge } from "@/components/ui/badge";
 import { Table, Thead, Th, Tr, Td, EmptyRow } from "@/components/ui/table";
+import { PublishedToggle } from "./published-toggle";
 
 export default async function AdminProductsPage() {
   const supabase = createAdminClient();
@@ -15,7 +15,7 @@ export default async function AdminProductsPage() {
     <div>
       <PageHeader
         title="Products"
-        description="What actually appears on the Gamefy storefront. Publish an opportunity here to make it live."
+        description="What actually appears on the Gamefy storefront. Publish an opportunity from Opportunities or Steam Prices to create one — click Published/Draft here to toggle visibility."
       />
 
       <Table>
@@ -49,7 +49,7 @@ export default async function AdminProductsPage() {
                 {(p.profit_margin * 100).toFixed(1)}%
               </Td>
               <Td>
-                {p.published ? <Badge tone="success">Published</Badge> : <Badge tone="neutral">Draft</Badge>}
+                <PublishedToggle id={p.id} published={p.published} />
               </Td>
               <Td>
                 {p.featured ? (

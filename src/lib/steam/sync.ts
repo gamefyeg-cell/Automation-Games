@@ -8,6 +8,13 @@ export interface SyncResult {
   countryCode: string;
   ok: boolean;
   gameName?: string;
+  gameId?: string;
+  gameRegionId?: string;
+  imageUrl?: string | null;
+  originalPrice?: number;
+  currentPrice?: number;
+  discountPercent?: number;
+  currency?: string;
   error?: string;
 }
 
@@ -65,21 +72,27 @@ export async function syncSteamGameRegion(
 
     const originalPrice = details.originalPrice ?? details.currentPrice;
 
-    const { error: regionError } = await supabase.from("game_regions").upsert(
-      {
-        game_id: game.id,
-        country_code: country.toUpperCase(),
-        currency: details.currency,
-        original_price: originalPrice,
-        current_price: details.currentPrice,
-        discount_percent: details.discountPercent,
-        sale_active: details.discountPercent > 0,
-        last_updated: new Date().toISOString(),
-      },
-      { onConflict: "game_id,country_code" },
-    );
+    const { data: region, error: regionError } = await supabase
+      .from("game_regions")
+      .upsert(
+        {
+          game_id: game.id,
+          country_code: country.toUpperCase(),
+          currency: details.currency,
+          original_price: originalPrice,
+          current_price: details.currentPrice,
+          discount_percent: details.discountPercent,
+          sale_active: details.discountPercent > 0,
+          last_updated: new Date().toISOString(),
+        },
+        { onConflict: "game_id,country_code" },
+      )
+      .select("id")
+      .single();
 
-    if (regionError) throw new Error(regionError.message);
+    if (regionError || !region) {
+      throw new Error(regionError?.message ?? "Failed to upsert game region.");
+    }
 
     const { error: historyError } = await supabase.from("game_price_history").insert({
       game_id: game.id,
@@ -92,7 +105,19 @@ export async function syncSteamGameRegion(
 
     if (historyError) throw new Error(historyError.message);
 
-    return { steamAppId, countryCode: country, ok: true, gameName: details.name ?? undefined };
+    return {
+      steamAppId,
+      countryCode: country,
+      ok: true,
+      gameName: details.name ?? undefined,
+      gameId: game.id,
+      gameRegionId: region.id,
+      imageUrl: details.imageUrl,
+      originalPrice,
+      currentPrice: details.currentPrice,
+      discountPercent: details.discountPercent,
+      currency: details.currency,
+    };
   } catch (err) {
     return {
       steamAppId,

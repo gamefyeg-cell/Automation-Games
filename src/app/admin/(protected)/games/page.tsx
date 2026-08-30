@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { PageHeader } from "@/components/ui/page-header";
-import { Badge } from "@/components/ui/badge";
-import { Table, Thead, Th, Tr, Td, EmptyRow } from "@/components/ui/table";
+import { Table, Thead, Th, EmptyRow } from "@/components/ui/table";
+import { GameRegionRow } from "./game-region-row";
 
 export default async function AdminGamesPage() {
   const supabase = createAdminClient();
@@ -16,7 +16,7 @@ export default async function AdminGamesPage() {
     <div>
       <PageHeader
         title="Steam Games"
-        description="Populated by POST /api/sync/steam — see the README for how to trigger it."
+        description="Populated by POST /api/sync/steam or by choosing a region on Steam Prices. Click a row for the full cost/profit report."
       />
 
       <Table>
@@ -28,37 +28,29 @@ export default async function AdminGamesPage() {
             <Th align="right">Current</Th>
             <Th align="right">Discount</Th>
             <Th align="right">Sale</Th>
+            <Th align="right">Remove</Th>
           </tr>
         </Thead>
         <tbody>
           {regions?.map((r) => {
             const game = Array.isArray(r.games) ? r.games[0] : r.games;
             return (
-              <Tr key={r.id}>
-                <Td>
-                  <span className="font-medium text-zinc-100">{game?.name}</span>
-                </Td>
-                <Td muted>
-                  {r.country_code} ({r.currency})
-                </Td>
-                <Td align="right" muted>
-                  {r.original_price}
-                </Td>
-                <Td align="right">{r.current_price}</Td>
-                <Td align="right">
-                  {r.discount_percent > 0 ? (
-                    <Badge tone="success">-{r.discount_percent}%</Badge>
-                  ) : (
-                    <span className="text-zinc-600">—</span>
-                  )}
-                </Td>
-                <Td align="right">
-                  {r.sale_active ? <Badge tone="success">Active</Badge> : <span className="text-zinc-600">—</span>}
-                </Td>
-              </Tr>
+              <GameRegionRow
+                key={r.id}
+                region={{
+                  id: r.id,
+                  gameName: game?.name ?? "Unknown game",
+                  countryCode: r.country_code,
+                  currency: r.currency,
+                  originalPrice: r.original_price,
+                  currentPrice: r.current_price,
+                  discountPercent: r.discount_percent,
+                  saleActive: r.sale_active,
+                }}
+              />
             );
           })}
-          {regions?.length === 0 && <EmptyRow colSpan={6}>No games synced yet.</EmptyRow>}
+          {regions?.length === 0 && <EmptyRow colSpan={7}>No games synced yet.</EmptyRow>}
         </tbody>
       </Table>
     </div>

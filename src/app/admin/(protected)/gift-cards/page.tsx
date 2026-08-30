@@ -33,6 +33,7 @@ export default async function AdminGiftCardsPage() {
           <Thead>
             <tr>
               <Th>Provider</Th>
+              <Th>Region</Th>
               <Th align="right">Value</Th>
               <Th align="right">Purchase Price</Th>
               <Th align="right">Fees</Th>
@@ -45,6 +46,9 @@ export default async function AdminGiftCardsPage() {
               <Tr key={c.id}>
                 <Td>
                   <span className="font-medium text-zinc-100">{c.provider}</span>
+                </Td>
+                <Td muted>
+                  {c.region ? <Badge tone="accent">{c.region}</Badge> : "any"}
                 </Td>
                 <Td align="right">
                   {c.value} {c.value_currency}
@@ -63,7 +67,7 @@ export default async function AdminGiftCardsPage() {
                 </Td>
               </Tr>
             ))}
-            {giftCards?.length === 0 && <EmptyRow colSpan={6}>No gift cards yet.</EmptyRow>}
+            {giftCards?.length === 0 && <EmptyRow colSpan={7}>No gift cards yet.</EmptyRow>}
           </tbody>
         </Table>
       </div>

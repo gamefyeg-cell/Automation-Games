@@ -25,21 +25,43 @@ export function Th({ children, align }: { children: ReactNode; align?: "right" }
   );
 }
 
-export function Tr({ children }: { children: ReactNode }) {
-  return <tr className="border-t border-zinc-800/80 transition-colors hover:bg-zinc-900/40">{children}</tr>;
+export function Tr({
+  children,
+  onClick,
+  className,
+}: {
+  children: ReactNode;
+  onClick?: () => void;
+  className?: string;
+}) {
+  return (
+    <tr
+      onClick={onClick}
+      className={cn(
+        "border-t border-zinc-800/80 transition-colors hover:bg-zinc-900/40",
+        onClick && "cursor-pointer",
+        className,
+      )}
+    >
+      {children}
+    </tr>
+  );
 }
 
 export function Td({
   children,
   align,
   muted,
+  colSpan,
 }: {
   children: ReactNode;
   align?: "right";
   muted?: boolean;
+  colSpan?: number;
 }) {
   return (
     <td
+      colSpan={colSpan}
       className={cn(
         "px-4 py-3 whitespace-nowrap",
         align === "right" && "text-right tabular-nums",
