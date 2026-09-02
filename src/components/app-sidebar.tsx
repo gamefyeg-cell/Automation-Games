@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   Gamepad2,
   Gift,
+  Joystick,
   LogOut,
   Package,
   Search,
@@ -18,6 +19,7 @@ import { cn } from "@/lib/utils/cn";
 const NAV_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/admin", label: "Opportunities", icon: TrendingUp },
   { href: "/prices", label: "Steam Prices", icon: Search },
+  { href: "/psstore", label: "PlayStation Store", icon: Joystick },
   { href: "/admin/games", label: "Steam Games", icon: Gamepad2 },
   { href: "/admin/gift-cards", label: "Gift Cards", icon: Gift },
   { href: "/admin/products", label: "Products", icon: Package },

@@ -8,6 +8,11 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       { protocol: "https", hostname: "*.steamstatic.com" },
       { protocol: "https", hostname: "*.akamaihd.net" },
+      // PlayStation Store cover art (see src/lib/psstore) — media[].url in
+      // the categoryGridRetrieve response is served from these hosts.
+      { protocol: "https", hostname: "image.api.playstation.com" },
+      { protocol: "https", hostname: "*.playstation.com" },
+      { protocol: "https", hostname: "*.playstation.net" },
     ],
   },
 };

@@ -7,14 +7,20 @@ import { Card } from "@/components/ui/card";
 // Uses the anon-key server client, so RLS restricts this query to
 // products.published = true automatically — see the "products: public
 // read published" policy in supabase/migrations.
+//
+// When Supabase env vars are missing (a fresh checkout with no .env.local)
+// createClient() rejects — catch it so `npm run dev` still serves this
+// page (and /psstore, which needs no database) instead of a hard crash.
 export default async function HomePage() {
-  const supabase = await createClient();
-  const { data: products, error } = await supabase
-    .from("products")
-    .select("id, title, image_url, selling_price, old_price, currency")
-    .eq("published", true)
-    .order("featured", { ascending: false })
-    .order("created_at", { ascending: false });
+  const supabase = await createClient().catch(() => null);
+  const { data: products, error } = supabase
+    ? await supabase
+        .from("products")
+        .select("id, title, image_url, selling_price, old_price, currency")
+        .eq("published", true)
+        .order("featured", { ascending: false })
+        .order("created_at", { ascending: false })
+    : { data: null, error: new Error("Supabase isn't configured — copy .env.example to .env.local.") };
 
   return (
     <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-16">
