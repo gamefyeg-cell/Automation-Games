@@ -2,8 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
+import type { Platform } from "@/lib/supabase/database.types";
 
 export interface PublishInput {
+  /** Which storefront this listing belongs to. Defaults to "steam". */
+  platform?: Platform;
   gameId: string;
   gameRegionId: string;
   title: string;
@@ -32,6 +35,7 @@ export interface PublishResult {
  * from what Gamefy itself charged before, never a fabricated "was" price.
  */
 export async function publishOpportunity(input: PublishInput): Promise<PublishResult> {
+  const platform: Platform = input.platform ?? "steam";
   const supabase = createAdminClient();
 
   const { data: existing } = await supabase
@@ -46,6 +50,7 @@ export async function publishOpportunity(input: PublishInput): Promise<PublishRe
 
   const { error } = await supabase.from("products").upsert(
     {
+      platform,
       game_id: input.gameId,
       game_region_id: input.gameRegionId,
       title: input.title,
@@ -61,9 +66,10 @@ export async function publishOpportunity(input: PublishInput): Promise<PublishRe
 
   if (error) return { ok: false, message: error.message };
 
-  revalidatePath("/admin/products");
-  revalidatePath("/admin");
-  revalidatePath("/");
+  const base = platform === "playstation" ? "/ps" : "/admin";
+  revalidatePath(`${base}/products`);
+  revalidatePath(base);
+  revalidatePath("/store");
 
   return { ok: true, message: existing ? "Updated the live listing." : "Published to storefront." };
 }
@@ -78,6 +84,7 @@ export async function setProductPublished(
   if (error) return { ok: false, message: error.message };
 
   revalidatePath("/admin/products");
-  revalidatePath("/");
+  revalidatePath("/ps/products");
+  revalidatePath("/store");
   return { ok: true, message: published ? "Published." : "Unpublished." };
 }

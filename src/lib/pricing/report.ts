@@ -1,6 +1,8 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { giftCardMatchesRegion } from "@/lib/steam/regions";
 import { calculateProductPricing, type GiftCardOption } from "@/lib/pricing/engine";
+import { withPlatformFallback } from "@/lib/supabase/platform-filter";
+import type { Platform } from "@/lib/supabase/database.types";
 
 export interface RegionReportCardLine {
   provider: string;
@@ -30,6 +32,7 @@ export interface PriceScenario {
 }
 
 export interface RegionReport {
+  platform: Platform;
   gameId: string;
   gameRegionId: string;
   imageUrl: string | null;
@@ -58,6 +61,8 @@ export interface RegionReportResult {
 }
 
 export interface RegionReportInput {
+  /** Which storefront's gift cards this price should be funded from. Defaults to "steam". */
+  platform?: Platform;
   gameId: string;
   gameRegionId: string;
   imageUrl: string | null;
@@ -82,14 +87,16 @@ export interface RegionReportInput {
  * just a different display of the same numbers.
  */
 export async function buildRegionReport(input: RegionReportInput): Promise<RegionReportResult> {
+  const platform: Platform = input.platform ?? "steam";
   const supabase = createAdminClient();
+  const CARD_COLS =
+    "id, provider, product_name, value, value_currency, purchase_price, fees, total_cost, purchase_currency, region";
   const [{ data: giftCards }, { data: settingsRow }] = await Promise.all([
-    supabase
-      .from("gift_cards")
-      .select(
-        "id, provider, product_name, value, value_currency, purchase_price, fees, total_cost, purchase_currency, region",
-      )
-      .eq("active", true),
+    withPlatformFallback(
+      supabase.from("gift_cards").select(CARD_COLS).eq("platform", platform).eq("active", true),
+      () => supabase.from("gift_cards").select(CARD_COLS).eq("active", true),
+      platform,
+    ),
     supabase.from("pricing_settings").select("*").single(),
   ]);
 
@@ -176,6 +183,7 @@ export async function buildRegionReport(input: RegionReportInput): Promise<Regio
     ok: true,
     message: "",
     report: {
+      platform,
       gameId: input.gameId,
       gameRegionId: input.gameRegionId,
       imageUrl: input.imageUrl,

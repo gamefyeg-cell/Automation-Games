@@ -4,9 +4,10 @@ import { useActionState, useEffect, useRef } from "react";
 import { Card, CardBody } from "@/components/ui/card";
 import { inputClass, labelClass } from "@/components/ui/input";
 import { buttonClass } from "@/components/ui/button";
+import type { Platform } from "@/lib/supabase/database.types";
 import { addGiftCard, type ImportState } from "./actions";
 
-export function GiftCardAddForm() {
+export function GiftCardAddForm({ platform = "steam" }: { platform?: Platform }) {
   const [state, formAction, pending] = useActionState<ImportState | null, FormData>(
     addGiftCard,
     null,
@@ -21,6 +22,7 @@ export function GiftCardAddForm() {
     <Card className="mt-6">
       <CardBody>
         <form ref={formRef} action={formAction} className="space-y-4">
+          <input type="hidden" name="platform" value={platform} />
           <p className="text-sm font-semibold text-zinc-100">Add one gift card</p>
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -32,7 +34,9 @@ export function GiftCardAddForm() {
               <label className={labelClass}>Product name</label>
               <input
                 name="product_name"
-                placeholder="Steam Wallet Code"
+                placeholder={
+                  platform === "playstation" ? "PSN Wallet Top-Up" : "Steam Wallet Code"
+                }
                 className={`${inputClass} mt-1`}
               />
             </div>

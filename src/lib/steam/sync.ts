@@ -52,6 +52,7 @@ export async function syncSteamGameRegion(
       .from("games")
       .upsert(
         {
+          platform: "steam",
           steam_app_id: steamAppId,
           name: details.name!,
           slug: slugify(details.name!),
@@ -76,6 +77,7 @@ export async function syncSteamGameRegion(
       .from("game_regions")
       .upsert(
         {
+          platform: "steam",
           game_id: game.id,
           country_code: country.toUpperCase(),
           currency: details.currency,
@@ -95,6 +97,7 @@ export async function syncSteamGameRegion(
     }
 
     const { error: historyError } = await supabase.from("game_price_history").insert({
+      platform: "steam",
       game_id: game.id,
       country_code: country.toUpperCase(),
       currency: details.currency,

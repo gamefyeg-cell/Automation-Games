@@ -2,10 +2,20 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
+import type { Platform } from "@/lib/supabase/database.types";
 
 export interface ImportState {
   ok: boolean;
   message: string;
+}
+
+/** Reads the hidden `platform` field a gift-cards form carries; defaults to Steam. */
+function readPlatform(formData: FormData): Platform {
+  return String(formData.get("platform") ?? "") === "playstation" ? "playstation" : "steam";
+}
+
+function giftCardsPath(platform: Platform): string {
+  return platform === "playstation" ? "/ps/gift-cards" : "/admin/gift-cards";
 }
 
 /**
@@ -30,8 +40,10 @@ export async function addGiftCard(
     return { ok: false, message: "Purchase price must be a non-negative number." };
   }
 
+  const platform = readPlatform(formData);
   const supabase = createAdminClient();
   const { error } = await supabase.from("gift_cards").insert({
+    platform,
     provider,
     product_name: get("product_name") || provider,
     value,
@@ -45,7 +57,7 @@ export async function addGiftCard(
 
   if (error) return { ok: false, message: error.message };
 
-  revalidatePath("/admin/gift-cards");
+  revalidatePath(giftCardsPath(platform));
   return { ok: true, message: `Added ${provider} — ${value} ${get("value_currency") || "USD"}.` };
 }
 
@@ -73,6 +85,8 @@ export async function importGiftCardsCsv(
   const raw = String(formData.get("csv") ?? "").trim();
   if (!raw) return { ok: false, message: "Paste or upload some rows first." };
 
+  const platform = readPlatform(formData);
+
   let rows: ParsedGiftCard[];
   try {
     rows = parseGiftCardRows(raw);
@@ -82,10 +96,12 @@ export async function importGiftCardsCsv(
   if (rows.length === 0) return { ok: false, message: "No data rows found." };
 
   const supabase = createAdminClient();
-  const { error } = await supabase.from("gift_cards").insert(rows);
+  const { error } = await supabase
+    .from("gift_cards")
+    .insert(rows.map((r) => ({ ...r, platform })));
   if (error) return { ok: false, message: error.message };
 
-  revalidatePath("/admin/gift-cards");
+  revalidatePath(giftCardsPath(platform));
   return {
     ok: true,
     message: `Imported ${rows.length} gift card${rows.length === 1 ? "" : "s"}.`,

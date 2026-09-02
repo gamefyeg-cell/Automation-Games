@@ -6,6 +6,7 @@ import { FileSpreadsheet, Upload } from "lucide-react";
 import { Card, CardBody } from "@/components/ui/card";
 import { buttonClass } from "@/components/ui/button";
 import { cn } from "@/lib/utils/cn";
+import type { Platform } from "@/lib/supabase/database.types";
 import { importGiftCardsCsv, type ImportState } from "./actions";
 
 const EXAMPLE = `Product,Value,Country,Provider,Price,Fees
@@ -14,7 +15,7 @@ Steam GC,50 UAH,UKRAINE,G2A,89.25,12`;
 
 const EXCEL_EXTENSIONS = [".xlsx", ".xls", ".xlsb", ".ods"];
 
-export function GiftCardImportForm() {
+export function GiftCardImportForm({ platform = "steam" }: { platform?: Platform }) {
   const [state, formAction, pending] = useActionState<ImportState | null, FormData>(
     importGiftCardsCsv,
     null,
@@ -74,6 +75,7 @@ export function GiftCardImportForm() {
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => e.preventDefault()}
         >
+          <input type="hidden" name="platform" value={platform} />
           <div>
             <p className="text-sm font-semibold text-zinc-100">Import gift cards</p>
             <p className="mt-1 text-xs text-zinc-500">

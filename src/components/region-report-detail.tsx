@@ -15,12 +15,13 @@ import type { RegionReport, PriceScenario } from "@/lib/pricing/report";
  */
 export function RegionReportDetail({ report }: { report: RegionReport }) {
   const hasDiscount = report.discountPercent > 0;
+  const storeLabel = report.platform === "playstation" ? "PlayStation price" : "Steam price";
 
   return (
     <div className="space-y-4 text-zinc-300">
       <Card className="border-zinc-800 bg-zinc-950/60">
         <CardHeader>
-          <CardTitle>Steam price</CardTitle>
+          <CardTitle>{storeLabel}</CardTitle>
         </CardHeader>
         <CardBody className="grid grid-cols-2 gap-4 p-4 sm:grid-cols-4">
           <Stat label="Before discount">
@@ -237,6 +238,7 @@ function ScenarioSection({
 
       <div className="mt-3">
         <PublishButton
+          platform={report.platform}
           gameId={report.gameId}
           gameRegionId={report.gameRegionId}
           title={report.gameName}

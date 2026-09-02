@@ -2,9 +2,18 @@
 
 import { useState, useTransition } from "react";
 import { Loader2, Trash2 } from "lucide-react";
+import type { Platform } from "@/lib/supabase/database.types";
 import { deleteGameRegion } from "./actions";
 
-export function DeleteRegionButton({ id, label }: { id: string; label: string }) {
+export function DeleteRegionButton({
+  id,
+  label,
+  platform = "steam",
+}: {
+  id: string;
+  label: string;
+  platform?: Platform;
+}) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -12,7 +21,7 @@ export function DeleteRegionButton({ id, label }: { id: string; label: string })
     if (!confirm(`Remove ${label}? This can't be undone.`)) return;
     setError(null);
     startTransition(async () => {
-      const result = await deleteGameRegion(id);
+      const result = await deleteGameRegion(id, platform);
       if (!result.ok) setError(result.message ?? "Failed to delete.");
     });
   }

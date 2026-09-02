@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tr, Td } from "@/components/ui/table";
 import { RegionReportDetail } from "@/components/region-report-detail";
 import type { RegionReportResult } from "@/lib/pricing/report";
+import type { Platform } from "@/lib/supabase/database.types";
 import { getGameRegionReport } from "./actions";
 import { DeleteRegionButton } from "./delete-region-button";
 
@@ -25,7 +26,13 @@ export interface GameRegionRowData {
  * shows right after "Choose" — but without re-syncing, since the price
  * is already saved. Fetched once per row and cached in state.
  */
-export function GameRegionRow({ region }: { region: GameRegionRowData }) {
+export function GameRegionRow({
+  region,
+  platform = "steam",
+}: {
+  region: GameRegionRowData;
+  platform?: Platform;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<RegionReportResult | null>(null);
@@ -38,7 +45,7 @@ export function GameRegionRow({ region }: { region: GameRegionRowData }) {
     setExpanded(true);
     if (!result) {
       setLoading(true);
-      const fetched = await getGameRegionReport(region.id);
+      const fetched = await getGameRegionReport(region.id, platform);
       setResult(fetched);
       setLoading(false);
     }
@@ -77,7 +84,7 @@ export function GameRegionRow({ region }: { region: GameRegionRowData }) {
         <Td align="right">
           {/* Row's onClick would also fire on this click; stop it from toggling the row too. */}
           <span onClick={(e) => e.stopPropagation()}>
-            <DeleteRegionButton id={region.id} label={label} />
+            <DeleteRegionButton id={region.id} label={label} platform={platform} />
           </span>
         </Td>
       </Tr>

@@ -15,6 +15,9 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[];
 
+/** Which storefront a game / price / gift card / product belongs to. */
+export type Platform = "steam" | "playstation";
+
 export interface Database {
   public: {
     Tables: {
@@ -42,7 +45,9 @@ export interface Database {
       games: {
         Row: {
           id: string;
-          steam_app_id: number;
+          platform: Platform;
+          steam_app_id: number | null;
+          ps_concept_id: string | null;
           name: string;
           slug: string;
           description: string | null;
@@ -57,7 +62,9 @@ export interface Database {
         };
         Insert: {
           id?: string;
-          steam_app_id: number;
+          platform?: Platform;
+          steam_app_id?: number | null;
+          ps_concept_id?: string | null;
           name: string;
           slug: string;
           description?: string | null;
@@ -76,6 +83,7 @@ export interface Database {
       game_regions: {
         Row: {
           id: string;
+          platform: Platform;
           game_id: string;
           country_code: string;
           currency: string;
@@ -89,6 +97,7 @@ export interface Database {
         };
         Insert: {
           id?: string;
+          platform?: Platform;
           game_id: string;
           country_code: string;
           currency: string;
@@ -114,6 +123,7 @@ export interface Database {
       game_price_history: {
         Row: {
           id: string;
+          platform: Platform;
           game_id: string;
           country_code: string;
           currency: string;
@@ -124,6 +134,7 @@ export interface Database {
         };
         Insert: {
           id?: string;
+          platform?: Platform;
           game_id: string;
           country_code: string;
           currency: string;
@@ -146,6 +157,7 @@ export interface Database {
       gift_cards: {
         Row: {
           id: string;
+          platform: Platform;
           provider: string;
           product_name: string;
           value: number;
@@ -161,6 +173,7 @@ export interface Database {
         };
         Insert: {
           id?: string;
+          platform?: Platform;
           provider: string;
           product_name: string;
           value: number;
@@ -201,6 +214,7 @@ export interface Database {
       products: {
         Row: {
           id: string;
+          platform: Platform;
           game_id: string;
           game_region_id: string | null;
           title: string;
@@ -220,6 +234,7 @@ export interface Database {
         };
         Insert: {
           id?: string;
+          platform?: Platform;
           game_id: string;
           game_region_id?: string | null;
           title: string;

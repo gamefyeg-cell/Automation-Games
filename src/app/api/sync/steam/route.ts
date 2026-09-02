@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { syncSteamGames } from "@/lib/steam/sync";
+import { withPlatformFallback } from "@/lib/supabase/platform-filter";
 
 export const maxDuration = 300; // seconds — Anakin jobs can take up to ~2 min each
 
@@ -43,11 +44,17 @@ export async function POST(request: Request) {
   let steamAppIds = body.steamAppIds;
   if (!steamAppIds?.length) {
     const supabase = createAdminClient();
-    const { data, error } = await supabase.from("games").select("steam_app_id").eq("active", true);
+    const { data, error } = await withPlatformFallback(
+      supabase.from("games").select("steam_app_id").eq("platform", "steam").eq("active", true),
+      () => supabase.from("games").select("steam_app_id").eq("active", true),
+      "steam",
+    );
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
-    steamAppIds = data.map((g) => g.steam_app_id);
+    steamAppIds = (data ?? [])
+      .map((g) => g.steam_app_id)
+      .filter((id): id is number => id !== null);
   }
 
   if (steamAppIds.length === 0) {
