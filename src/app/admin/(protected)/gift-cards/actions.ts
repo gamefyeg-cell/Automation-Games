@@ -18,6 +18,86 @@ function giftCardsPath(platform: Platform): string {
   return platform === "playstation" ? "/ps/gift-cards" : "/admin/gift-cards";
 }
 
+// --- inline edit / delete on the gift-cards table -----------------------
+
+export interface GiftCardPatch {
+  provider?: string;
+  product_name?: string;
+  value?: number;
+  value_currency?: string;
+  region?: string | null;
+  purchase_price?: number;
+  fees?: number;
+  purchase_currency?: string;
+  active?: boolean;
+}
+
+export interface MutationResult {
+  ok: boolean;
+  message?: string;
+}
+
+export async function updateGiftCard(
+  id: string,
+  platform: Platform,
+  patch: GiftCardPatch,
+): Promise<MutationResult> {
+  const clean: GiftCardPatch = {};
+
+  if (patch.provider !== undefined) {
+    const provider = patch.provider.trim();
+    if (!provider) return { ok: false, message: "Provider can't be empty." };
+    clean.provider = provider;
+  }
+  if (patch.product_name !== undefined) clean.product_name = patch.product_name.trim() || undefined;
+  if (patch.value !== undefined) {
+    if (!Number.isFinite(patch.value) || patch.value <= 0) {
+      return { ok: false, message: "Value must be a positive number." };
+    }
+    clean.value = patch.value;
+  }
+  if (patch.value_currency !== undefined) {
+    clean.value_currency = patch.value_currency.trim().toUpperCase() || "USD";
+  }
+  if (patch.region !== undefined) {
+    const region = (patch.region ?? "").trim();
+    clean.region = region === "" ? null : region;
+  }
+  if (patch.purchase_price !== undefined) {
+    if (!Number.isFinite(patch.purchase_price) || patch.purchase_price < 0) {
+      return { ok: false, message: "Purchase price must be a non-negative number." };
+    }
+    clean.purchase_price = patch.purchase_price;
+  }
+  if (patch.fees !== undefined) {
+    clean.fees = Number.isFinite(patch.fees) && patch.fees >= 0 ? patch.fees : 0;
+  }
+  if (patch.purchase_currency !== undefined) {
+    clean.purchase_currency = patch.purchase_currency.trim().toUpperCase() || "EGP";
+  }
+  if (patch.active !== undefined) clean.active = patch.active;
+
+  if (Object.keys(clean).length === 0) return { ok: true };
+
+  const supabase = createAdminClient();
+  const { error } = await supabase.from("gift_cards").update(clean).eq("id", id);
+  if (error) return { ok: false, message: error.message };
+
+  revalidatePath(giftCardsPath(platform));
+  revalidatePath(platform === "playstation" ? "/ps" : "/admin");
+  return { ok: true };
+}
+
+export async function deleteGiftCard(id: string, platform: Platform): Promise<MutationResult> {
+  const supabase = createAdminClient();
+  const { error } = await supabase.from("gift_cards").delete().eq("id", id);
+  if (error) return { ok: false, message: error.message };
+
+  revalidatePath(giftCardsPath(platform));
+  revalidatePath(platform === "playstation" ? "/ps" : "/admin");
+  return { ok: true };
+}
+
 /**
  * Adds a single gift card by hand — the simple path for "I just want to
  * add the one card I bought", no CSV needed.

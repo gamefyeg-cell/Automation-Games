@@ -1,16 +1,46 @@
 # Gamefy
 
-A Steam-game reselling storefront built around a **profit engine**: Steam
-tells you what a game costs, your gift-card inventory tells you what it
-costs *you*, and this app turns the two into a selling price and a
-calculated margin — calculated from current data, not guaranteed; Steam
-prices, gift-card costs, and FX rates all move.
+A game-reselling storefront built around a **profit engine**: a store
+(Steam or the PlayStation Store) tells you what a game costs, your
+gift-card inventory tells you what it costs *you*, and this app turns the
+two into a selling price and a calculated margin — calculated from current
+data, not guaranteed; store prices, gift-card costs, and FX rates all move.
 
 Stack: **Next.js (App Router) + Tailwind + Supabase (Postgres, RLS)**.
 
+## Two storefronts
+
+Opening the app (`/`) asks which storefront you're working on. Each side
+is a full, independent copy of the same flow — its own games, gift-card
+inventory, opportunities and products — sharing only the pricing rules
+(`pricing_settings`).
+
+| | Steam | PlayStation |
+| --- | --- | --- |
+| Price lookup | `/prices` | `/ps/prices` |
+| Browse the catalog | — | `/ps/browse` |
+| Opportunities (bulk engine) | `/admin` | `/ps` |
+| Games (synced regions) | `/admin/games` | `/ps/games` |
+| Gift cards | `/admin/gift-cards` | `/ps/gift-cards` |
+| Products (storefront listings) | `/admin/products` | `/ps/products` |
+| Pricing settings | `/admin/settings` — shared, linked from both sidebars | |
+
+The public storefront is `/store` (published products from both platforms,
+badged). Everything under `/admin/*` and `/ps` (except `/ps/prices` and
+`/ps/browse`, which are public) is gated by the same `ADMIN_PASSWORD`
+cookie. The sidebar ([src/components/app-sidebar.tsx](src/components/app-sidebar.tsx))
+switches its nav to match the platform you're in, so PlayStation pages
+never appear under Steam and vice versa.
+
+Every per-platform table carries a `platform` column (`'steam'` /
+`'playstation'`); the shared pricing engine, FX and report builder take a
+`platform` argument, and the four admin pages are thin wrappers over
+shared views in [src/components/admin/](src/components/admin/) rendered
+once per platform.
+
 ## Main objective
 
-The question this app exists to answer isn't "what's the cheapest Steam
+The question this app exists to answer isn't "what's the cheapest store
 region" — it's:
 
 > **What is the cheapest way for Gamefy to acquire this game, and at what
@@ -19,11 +49,11 @@ region" — it's:
 Concretely, the pipeline is:
 
 ```text
-Steam original price
+Store original price         (Steam appdetails, or PlayStation concept pricing)
         ↓
 Sale / discount price
         ↓
-Cheapest region             (src/lib/steam/regional-prices.ts, /prices)
+Cheapest region             (src/lib/steam/regional-prices.ts / src/lib/psn/pricing.ts)
         ↓
 Best gift-card combination  (src/lib/pricing/engine.ts, filtered by
         ↓                    src/lib/steam/regions.ts for region/currency compatibility)
@@ -36,9 +66,11 @@ Recommended selling price
 Expected profit + margin
 ```
 
-`/prices` runs this end-to-end for one game you pick, on demand — search,
-choose a region, get the report. `/admin` (Opportunities) runs the same
-engine in bulk, across every synced `game_regions` row, so you can compare
+Everything from "cheapest region" down is storefront-agnostic and shared.
+`/prices` (Steam) and `/ps/prices` (PlayStation) run this end-to-end for
+one game you pick, on demand — search, choose a region, get the report.
+`/admin` and `/ps` (Opportunities) run the same engine in bulk, across
+every synced `game_regions` row of that platform, so you can compare
 opportunities across your whole catalog at once rather than one game at a
 time.
 
@@ -70,25 +102,32 @@ harmless, just vestigial.
 
 ## Data model
 
-Steam data, gift-card cost, and the storefront listing are **separate
+Store data, gift-card cost, and the storefront listing are **separate
 tables on purpose** — so a supplier price change (e.g. a $20 card going
-from 920 → 980 EGP) recalculates cost without touching Steam data, and a
-Steam sale updating `game_regions` doesn't silently change what's already
+from 920 → 980 EGP) recalculates cost without touching store data, and a
+store sale updating `game_regions` doesn't silently change what's already
 published.
 
 | Table | Purpose |
 | --- | --- |
-| `games` | One row per Steam app — region-independent metadata. |
-| `game_regions` | Current Steam price per game per region/currency. |
+| `games` | One row per game — region-independent metadata. `platform`, and either `steam_app_id` (Steam) or `ps_concept_id` (PlayStation). |
+| `game_regions` | Current store price per game per region/currency (`platform`-tagged). |
 | `game_price_history` | Append-only snapshots, for lowest-price / trend logic. |
-| `gift_cards` | Supply side: what a gift card costs you to acquire (`purchase_price + fees`), which region's wallet it funds, and in what currency. |
-| `pricing_settings` | Singleton row of business rules (minimum profit, target margin, fees). |
-| `products` | What's actually live on the Gamefy storefront — computed cost/profit, `published` flag. |
+| `gift_cards` | Supply side: what a gift card costs you to acquire (`purchase_price + fees`), which region's wallet it funds, in what currency — per `platform` (Steam wallet codes ≠ PSN wallet top-ups). |
+| `pricing_settings` | Singleton row of business rules (minimum profit, target margin, fees). **Shared across platforms.** |
+| `products` | What's actually live on the Gamefy storefront — computed cost/profit, `published` flag, `platform`. |
 | `profiles` | Vestigial — was for Supabase-Auth-based admin RLS, unused now (see "Why Supabase" above). |
 
 Schema, indexes, generated columns (`gift_cards.total_cost`,
 `products.profit`, `products.profit_margin`) and RLS policies live in
-[`supabase/migrations`](supabase/migrations).
+[`supabase/migrations`](supabase/migrations). The `platform` column,
+`ps_concept_id`, and the per-platform uniqueness indexes are added by
+[`20260902211502_multi_platform.sql`](supabase/migrations/20260902211502_multi_platform.sql)
+— additive, everything defaults to `'steam'`. Until it's applied,
+[src/lib/supabase/platform-filter.ts](src/lib/supabase/platform-filter.ts)
+keeps the Steam pages working (it re-runs a query unfiltered when
+PostgREST reports the column doesn't exist yet) and the PlayStation admin
+pages simply show empty.
 
 ## The pricing engine
 
@@ -98,74 +137,102 @@ an API route):
 
 - `findCheapestGiftCardCombination(targetValue, giftCards)` — unbounded
   knapsack over gift-card denominations to find the cheapest combo whose
-  face value covers a Steam price.
-- `calculateProductPricing(steamPrice, giftCards, pricingSettings)` —
+  face value covers a store price.
+- `calculateProductPricing(storePrice, giftCards, pricingSettings)` —
   turns that into a selling price that survives payment/website fees and
   still clears both the target margin **and** the minimum absolute
   profit.
 
-The admin "Opportunities" page (`/admin`) runs this live against every
-`game_regions` row and the active `gift_cards`, so you can see what's
-worth publishing before it becomes a `products` row.
+Nothing in here knows or cares which storefront the price came from. The
+Opportunities pages (`/admin` for Steam, `/ps` for PlayStation) run it
+live against every `game_regions` row **of that platform** and the active
+`gift_cards` of that platform, so you can see what's worth publishing
+before it becomes a `products` row.
 
-**Not every active gift card is usable for every region.** A Steam
-wallet's currency is tied to the *account's* registered country, not to
-whatever region's store page you're looking at — a card that tops up an
+**Not every active gift card is usable for every region.** A wallet's
+currency is tied to the *account's* registered country, not to whatever
+region's store page you're looking at — a card that tops up an
 Egyptian-registered wallet can't pay for an India-priced listing just
 because it's marked `active`. [`src/lib/steam/regions.ts`](src/lib/steam/regions.ts)
 filters the candidate gift cards down to ones that actually match a
-region *and* whose `value_currency` matches the currency Steam is quoting
-before the engine ever runs — a card with no `region` set is treated as
-unrestricted (a global wallet code), but the currency check applies
-either way, since the engine compares face value to Steam price as raw
-numbers and needs them to be denominated the same way to mean anything.
-Both `/admin` (Opportunities) and `/prices` (the save-a-region report) go
-through this filter.
+region *and* whose `value_currency` matches the currency the store is
+quoting before the engine ever runs — a card with no `region` set is
+treated as unrestricted (a global wallet code), but the currency check
+applies either way, since the engine compares face value to store price
+as raw numbers and needs them to be denominated the same way to mean
+anything. This matcher is storefront-agnostic; PlayStation
+([src/lib/psn/regions.ts](src/lib/psn/regions.ts)) re-exports it rather
+than keeping a second copy. Both Opportunities and the save-a-region
+reports, on both platforms, go through this filter.
 
 ## Project layout
 
 ```text
 src/
   app/
-    page.tsx              Public storefront (published products only)
+    page.tsx              The chooser: Steam or PlayStation
+    store/page.tsx         Public storefront (published products, both platforms, badged)
     prices/                Public Steam price lookup — no login (search -> regions -> choose -> save + report)
       layout.tsx             Renders the shared sidebar (no auth check — see admin/(protected) for that)
       page.tsx                Search + regional price table + "Choose this region" per row
+      report-card.tsx          Shared save-result card (reused by /ps/prices)
       actions.ts               saveGameRegionAndReport — the one write action this public page has, admin-gated internally
     admin/
-      login/                Admin password form (outside the auth gate, see below)
+      login/                Admin password form (outside the auth gate, see below) — shared by both platforms
       (protected)/          Everything else under /admin — gated by the ADMIN_PASSWORD cookie
         layout.tsx            The actual gate: redirects to /admin/login if the cookie's missing/wrong; renders the shared sidebar
-        page.tsx              Live profit-opportunity board + stat cards
-        games/                 Synced Steam game/region rows, with a delete button per row (actions.ts, delete-region-button.tsx)
-        gift-cards/            Gift-card inventory: add-one form, CSV/TSV/Excel import (see "Importing gift cards" below)
-        products/              Published/unpublished storefront listings
-        settings/               Pricing rules — editable form (actions.ts, settings-form.tsx)
+        page.tsx              <OpportunitiesView platform="steam" />
+        games/                 <GamesView> + the client bits (game-region-row, delete-region-button, actions.ts)
+        gift-cards/            <GiftCardsView> + add-one form, CSV/TSV/Excel import (see "Importing gift cards" below)
+        products/              <ProductsView> + publishOpportunity / setProductPublished (actions.ts)
+        settings/               Pricing rules — editable form (actions.ts, settings-form.tsx). Shared; linked from both sidebars.
+    ps/
+      layout.tsx            Shared sidebar shell for every /ps/* page (no auth — see (admin) below)
+      prices/                Public PlayStation price lookup — mirrors /prices (page.tsx, actions.ts)
+      browse/page.tsx        Browse the PlayStation Store catalog by region/category (was /psstore)
+      (admin)/             Gated by the same ADMIN_PASSWORD cookie as /admin/(protected)
+        layout.tsx           The gate + page container
+        page.tsx             <OpportunitiesView platform="playstation" />   (route: /ps)
+        games/, gift-cards/, products/   thin <XView platform="playstation" /> wrappers
     api/
       admin/login, logout/    Sets/clears the admin cookie
       steam-search/            Public — name -> Steam App ID
-      steam-price/[appId]/     Public — one game's price in every region, converted + ranked
+      steam-price/[appId]/     Public — one game's price in every Steam region, converted + ranked
       sync/steam/               Secret-gated (STEAM_SYNC_SECRET) — bulk writer for schedulers
+      ps/search/                Public — name -> PlayStation Store product (catalog scan; see below)
+      ps/price/                 Public — one game's price in every PlayStation region, converted + ranked
+      psstore/                  Public — the catalog grid + in-category search behind /ps/browse
   components/
-    app-sidebar.tsx        The one sidebar every internal-tool page shares (/admin/* and /prices) — see "Design" below
+    app-sidebar.tsx        The one sidebar every internal-tool page shares — platform-aware, see "Design" below
+    region-report-detail.tsx / publish-button.tsx   Shared report + publish UI (both platforms)
+    admin/                  Platform-parameterized server views: opportunities-view, games-view, gift-cards-view, products-view
     ui/                     Small shared primitives: Card, buttonClass, Badge, Table/Thead/Tr/Td, PageHeader, input styles
   lib/
     auth/
       admin-session.ts        ADMIN_PASSWORD check + cookie signing (see "Why Supabase" above)
     supabase/
-      server.ts                Server Component client (anon key, RLS applies) — used by the public homepage
-      admin.ts                 Service-role client — server-only, bypasses RLS, used by all of /admin and prices/actions.ts
-      database.types.ts        Hand-written types matching the migration (regenerate once linked to a real project)
+      server.ts                Server Component client (anon key, RLS applies) — used by the public storefront
+      admin.ts                 Service-role client — server-only, bypasses RLS, used by all admin pages and the *actions.ts
+      platform-filter.ts       withPlatformFallback — keeps Steam reads working before the platform migration is applied
+      database.types.ts        Hand-written types matching the migrations (regenerate once linked to a real project)
     pricing/
-      engine.ts                The profit engine (see above)
+      engine.ts                The profit engine — storefront-agnostic (see above)
+      report.ts                buildRegionReport(platform, ...) — the itemized cost/profit breakdown
     currency/
       fx.ts                    FX rates + conversion, for comparing regions on one footing
     steam/
       appdetails.ts             Steam's official appdetails endpoint client (free, no key)
       search.ts                  Steam storesearch client — name -> real App ID
       regional-prices.ts         "One game -> price in every region -> cheapest" (converts + ranks)
-      regions.ts                  Region/currency compatibility check between gift cards and Steam prices (see below)
+      regions.ts                  Region/currency compatibility check between gift cards and store prices (see below)
       sync.ts                    Orchestrates appdetails -> upsert into games/game_regions/game_price_history
+    psstore/
+      client.ts                  PlayStation Store GraphQL client (persisted-query hashes, region list)
+      catalog.ts                 Category grid + the A–Z scan that stands in for a real search (see below)
+    psn/
+      regions.ts                 PlayStation price regions (country <-> locale) + price-string scale parsing; re-exports the gift-card matcher
+      pricing.ts                 "One concept -> price in every PlayStation region -> cheapest" (converts + ranks)
+      sync.ts                    Upserts a PlayStation game/region into games/game_regions/game_price_history
     utils/
       cn.ts, slug.ts, concurrency.ts   Small helpers shared across the above
 supabase/
@@ -177,12 +244,15 @@ supabase/
 One deliberate dark theme, not a light/dark toggle (`src/app/globals.css`
 fixes `color-scheme: dark` and the palette — this is a solo-operated tool,
 not a multi-theme product). [`src/components/app-sidebar.tsx`](src/components/app-sidebar.tsx)
-is shared by every internal page (`/admin/*` and `/prices`) so the whole
-thing reads as one app instead of disconnected pages — search, regional
-prices, gift cards, products, and settings are all one click away, never a
-typed URL. [`src/components/ui/`](src/components/ui/) holds the small
-shared primitives (Card, Badge, Table, buttonClass, PageHeader) every page
-builds on, plus icons via `lucide-react` — no emoji as UI icons.
+is shared by every internal page (`/admin/*`, `/prices`, and all of
+`/ps/*`) so the whole thing reads as one app instead of disconnected
+pages — search, regional prices, gift cards, products, and settings are
+all one click away, never a typed URL. It reads the current pathname and
+shows the Steam nav or the PlayStation nav accordingly, with a "Switch
+platform" link back to the chooser. [`src/components/ui/`](src/components/ui/)
+holds the small shared primitives (Card, Badge, Table, buttonClass,
+PageHeader) every page builds on, plus icons via `lucide-react` — no
+emoji as UI icons.
 
 ## Steam pricing
 
@@ -288,11 +358,67 @@ instead of creating a duplicate. `old_price` is only ever set to the
 the new one — a real markdown from what Gamefy itself charged before,
 never a fabricated "was" price. `/admin/products` has a click-to-toggle
 Published/Draft badge per row to take a listing down without deleting it.
+`publishOpportunity` takes a `platform` and writes it onto the `products`
+row, so the same button works identically on the PlayStation side.
+
+## PlayStation pricing
+
+The PlayStation Store is a persisted-query GraphQL API
+(`web.np.playstation.com/api/graphql/v1`). [`src/lib/psstore/client.ts`](src/lib/psstore/client.ts)
+holds the operation hashes and sends the region as an
+`x-psn-store-locale-override` header (a locale like `tr-tr`, not Steam's
+bare `tr`).
+
+### One game → cheapest region — `GET /api/ps/price?productId=…`
+
+PlayStation ties a game's regional SKUs together with a region-independent
+**concept id** (e.g. `10001850`). [`src/lib/psn/pricing.ts`](src/lib/psn/pricing.ts)
+resolves the product you picked to its concept id, then calls
+`metGetPricingDataByConceptId` once per region in
+[`src/lib/psn/regions.ts`](src/lib/psn/regions.ts) (`PSN_PRICE_REGIONS`),
+converts every result into the comparison currency via the same
+[`fx.ts`](src/lib/currency/fx.ts) Steam uses, and ranks them — output
+shape mirrors the Steam price report so [`/ps/prices`](src/app/ps/prices/page.tsx)
+reuses the same table and the same save-and-report flow
+([`savePsGameRegionAndReport`](src/app/ps/prices/actions.ts) →
+`syncPsGameRegion` → `buildRegionReport({ platform: "playstation" })`).
+
+**Price scale is per-currency.** PlayStation's integer `basePriceValue` is
+in cents for some currencies (USD `6999` → `69.99`) but whole units for
+others (INR `4999` → ₹4,999, and JPY, KRW, IDR…), and it's *not* the ISO
+minor-unit list. `psnPriceDivisor` figures out the divisor (1 or 100) by
+comparing the integer to PlayStation's own localized display string
+(`"Rs 4,999"`, `"¥8,690"`, `"2.799,00 TL"`), so the FX conversion is
+correct regardless of currency.
+
+### Search is a catalog scan, not a search endpoint
+
+PlayStation's real search query (`getSearchResults`) is behind a
+server-side hash allowlist that rejects any hash computed outside their
+own web client, and its search results aren't server-rendered either. So
+[`searchPsnCatalog`](src/lib/psstore/catalog.ts) (behind `/api/ps/search`
+and `/api/psstore?search=`) pulls the whole PS5 + PS4 catalog A–Z in
+parallel 1000-row pages and substring-matches locally. The first search in
+a while takes ~15–20 s; every one after that for the next 10 minutes is an
+in-process cache hit. [`/ps/browse`](src/app/ps/browse/page.tsx) is the
+plain catalog grid (category × region), with a **Refresh** button that
+bypasses the 30 s cache.
+
+### No bulk PlayStation sync worker yet
+
+There's no `/api/sync/ps` counterpart to `/api/sync/steam` — PlayStation
+game/region rows are created one at a time via "Choose this region" on
+`/ps/prices`. Re-running that on a saved game re-prices it. A scheduled
+bulk re-sync would reuse `syncPsGameRegion` the way the Steam route reuses
+`syncSteamGameRegion`.
 
 ## Importing gift cards
 
-`/admin/gift-cards` has two ways in: a one-row-at-a-time form for "I just
-bought one card", and an importer
+`/admin/gift-cards` (Steam) and `/ps/gift-cards` (PlayStation) each have
+two ways in — the same `<GiftCardsView>` rendered with a different
+`platform`, which the forms carry through as a hidden field so a card
+lands in the right inventory. A one-row-at-a-time form for "I just bought
+one card", and an importer
 ([import-form.tsx](src/app/admin/(protected)/gift-cards/import-form.tsx) +
 [actions.ts](src/app/admin/(protected)/gift-cards/actions.ts)) built around
 real supplier spreadsheets rather than a strict template you have to
@@ -340,23 +466,27 @@ to true).
 1. Create a Supabase project, then copy `.env.example` to `.env.local` and
    fill in `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and
    `SUPABASE_SERVICE_ROLE_KEY` from Project Settings → API.
-2. Link the CLI and push the schema:
+2. Apply the schema. Every migration in
+   [`supabase/migrations`](supabase/migrations) — including
+   `20260902211502_multi_platform.sql`, which adds the `platform` column
+   the PlayStation side needs — via either:
    ```bash
    npx supabase login
    npx supabase link --project-ref <your-project-ref>
    npm run db:push
    ```
-   (Or run everything locally first with `npm run db:start`, which needs
-   Docker Desktop.)
+   or, if the CLI can't authenticate, paste each migration's SQL into the
+   Supabase dashboard's **SQL Editor** and run it. (Or run everything
+   locally first with `npm run db:start`, which needs Docker Desktop.)
 3. Regenerate types against the real schema (optional but recommended):
    ```bash
    npm run db:types
    ```
 4. Set `ADMIN_PASSWORD` in `.env.local` to whatever you want — that's the
    entire admin auth setup, no accounts to create.
-5. `npm run dev` and open `http://localhost:3000` (storefront),
-   `http://localhost:3000/prices` (public Steam price lookup), and
-   `http://localhost:3000/admin` (password-gated dashboard).
+5. `npm run dev` and open `http://localhost:3000` — the Steam / PlayStation
+   chooser. From there: `/prices` and `/ps/prices` (public price lookups),
+   `/store` (storefront), `/admin` and `/ps` (password-gated dashboards).
 
 ## Not yet implemented
 
@@ -369,3 +499,9 @@ to true).
   nothing reads it back yet to say "today's discount beats the historical
   low" vs "this dips lower than this every few months, wait." The data's
   there; the query and the UI for it aren't.
+- **Bulk PlayStation sync** — no `/api/sync/ps` yet (see "PlayStation
+  pricing" above); PlayStation game/region rows are added one at a time
+  from `/ps/prices`.
+- **Per-platform storefronts** — `/store` lists published products from
+  both platforms together (with a badge); there's no per-platform public
+  storefront view.
