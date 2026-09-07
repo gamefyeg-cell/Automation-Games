@@ -306,6 +306,12 @@ function parseGiftCardRows(text: string): ParsedGiftCard[] {
       // instead of erroring on a "row" with no data in it.
       if (cells.every((c) => c.trim() === "")) return null;
 
+      // Skip repeated header rows (common when importing multi-table sheets with stacked tables per country)
+      const candidate = buildColumnIndex(cells);
+      if (REQUIRED_COLUMNS.every((col) => candidate[col] !== undefined)) {
+        return null;
+      }
+
       return parseRow(cells, colIndex, i);
     })
     .filter((row): row is ParsedGiftCard => row !== null);
