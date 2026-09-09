@@ -26,6 +26,7 @@ export interface SaveRegionResult {
 export async function saveGameRegionAndReport(
   steamAppId: number,
   countryCode: string,
+  minProfitOverride?: number,
 ): Promise<SaveRegionResult> {
   const cookieStore = await cookies();
   const token = cookieStore.get(ADMIN_COOKIE_NAME)?.value;
@@ -58,6 +59,7 @@ export async function saveGameRegionAndReport(
     currentPrice: sync.currentPrice,
     discountPercent: sync.discountPercent,
     currency: sync.currency,
+    minProfitOverride,
   });
 
   // The save itself always succeeded at this point — a missing report

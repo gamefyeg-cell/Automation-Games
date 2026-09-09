@@ -47,6 +47,8 @@ export interface RegionReport {
   websiteFeePercentage: number;
   targetProfitPercentage: number;
   minimumProfit: number;
+  /** True when `minimumProfit` came from a per-game override, not pricing_settings. */
+  minProfitIsCustom: boolean;
 
   /** Calculated against the full/original Steam price — null if no gift-card combo covers it. */
   beforeDiscount: PriceScenario | null;
@@ -72,6 +74,14 @@ export interface RegionReportInput {
   currentPrice: number;
   discountPercent: number;
   currency: string;
+  /**
+   * Per-game override for the absolute minimum profit (in the product
+   * currency). When set, it replaces `pricing_settings.minimum_profit` for
+   * this one calculation — the selling price still can't drop below the
+   * global target-margin %, so this only bites when it's the higher bar.
+   * Undefined / non-positive falls back to the global setting.
+   */
+  minProfitOverride?: number;
 }
 
 /**
@@ -119,8 +129,13 @@ export async function buildRegionReport(input: RegionReportInput): Promise<Regio
     return { ok: false, message: "None of your active gift cards are usable in this region." };
   }
 
+  const hasOverride =
+    typeof input.minProfitOverride === "number" &&
+    Number.isFinite(input.minProfitOverride) &&
+    input.minProfitOverride > 0;
+
   const settings = {
-    minimumProfit: settingsRow.minimum_profit,
+    minimumProfit: hasOverride ? input.minProfitOverride! : settingsRow.minimum_profit,
     targetProfitPercentage: settingsRow.target_profit_percentage,
     paymentFeePercentage: settingsRow.payment_fee_percentage,
     websiteFeePercentage: settingsRow.website_fee_percentage,
@@ -198,6 +213,7 @@ export async function buildRegionReport(input: RegionReportInput): Promise<Regio
       websiteFeePercentage: settings.websiteFeePercentage,
       targetProfitPercentage: settings.targetProfitPercentage,
       minimumProfit: settings.minimumProfit,
+      minProfitIsCustom: hasOverride,
 
       beforeDiscount,
       afterDiscount,

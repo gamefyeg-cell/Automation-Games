@@ -18,6 +18,7 @@ import type { SaveRegionResult } from "@/app/prices/actions";
 export async function savePsGameRegionAndReport(
   input: { conceptId: string; name: string; imageUrl: string | null },
   countryCode: string,
+  minProfitOverride?: number,
 ): Promise<SaveRegionResult> {
   const cookieStore = await cookies();
   if (!isValidAdminCookie(cookieStore.get(ADMIN_COOKIE_NAME)?.value)) {
@@ -50,6 +51,7 @@ export async function savePsGameRegionAndReport(
     currentPrice: sync.currentPrice,
     discountPercent: sync.discountPercent,
     currency: sync.currency,
+    minProfitOverride,
   });
 
   if (!reportResult.ok || !reportResult.report) {

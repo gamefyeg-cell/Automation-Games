@@ -6,7 +6,7 @@ import { ArrowLeft, Loader2, Search as SearchIcon, TrendingDown } from "lucide-r
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
 import { buttonClass } from "@/components/ui/button";
-import { inputClass } from "@/components/ui/input";
+import { inputClass, labelClass } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, Thead, Th, Tr, Td, EmptyRow } from "@/components/ui/table";
 import { SaveReportCard } from "@/app/prices/report-card";
@@ -59,6 +59,8 @@ export default function PsPricesPage() {
 
   const [savingCountry, setSavingCountry] = useState<string | null>(null);
   const [saveResult, setSaveResult] = useState<SaveRegionResult | null>(null);
+  // Per-game override for the minimum profit; blank = use Pricing Settings.
+  const [profitTarget, setProfitTarget] = useState("");
 
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -84,6 +86,7 @@ export default function PsPricesPage() {
     setError(null);
     setReport(null);
     setSaveResult(null);
+    setProfitTarget("");
     try {
       const params = new URLSearchParams({
         productId: r.productId,
@@ -104,12 +107,23 @@ export default function PsPricesPage() {
 
   async function handleChooseRegion(countryCode: string) {
     if (!report) return;
+
+    let override: number | undefined;
+    if (profitTarget.trim() !== "") {
+      override = Number(profitTarget);
+      if (!Number.isFinite(override) || override < 0) {
+        setSaveResult({ ok: false, message: "Enter a valid profit amount (or leave it blank)." });
+        return;
+      }
+    }
+
     setSavingCountry(countryCode);
     setSaveResult(null);
     try {
       const result = await savePsGameRegionAndReport(
         { conceptId: report.conceptId, name: report.name ?? "Unknown game", imageUrl: report.imageUrl },
         countryCode,
+        override,
       );
       setSaveResult(result);
     } finally {
@@ -237,6 +251,28 @@ export default function PsPricesPage() {
           )}
 
           {saveResult && <SaveReportCard saveResult={saveResult} />}
+
+          <div className="mt-4 flex flex-wrap items-end gap-x-4 gap-y-2 rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-3">
+            <label className="block">
+              <span className={labelClass}>
+                Profit you want on this game ({report.comparisonCurrency})
+              </span>
+              <input
+                value={profitTarget}
+                onChange={(e) => setProfitTarget(e.target.value)}
+                type="number"
+                inputMode="decimal"
+                min="0"
+                placeholder="uses your default"
+                className={`${inputClass} mt-1 w-52`}
+              />
+            </label>
+            <p className="max-w-md text-xs text-zinc-500">
+              Applied when you press <span className="text-zinc-300">Choose</span>. The sell price
+              is set so profit is at least this — still never below your usual margin %. Leave blank
+              to use Pricing Settings.
+            </p>
+          </div>
 
           <div className="mt-4">
             <Table>

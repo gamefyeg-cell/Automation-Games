@@ -202,6 +202,9 @@ function ScenarioSection({
           </Stat>
           <Stat label={`Target margin (${report.targetProfitPercentage}%)`}>
             min. profit {report.minimumProfit} {report.productCurrency}
+            {report.minProfitIsCustom && (
+              <span className="ml-1 text-xs text-indigo-400">· set for this game</span>
+            )}
           </Stat>
           <Stat label="Selling price">
             <span className="text-base font-semibold text-zinc-100">
