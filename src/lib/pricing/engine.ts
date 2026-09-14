@@ -27,6 +27,17 @@ export interface GiftCardCombination {
 }
 
 /**
+ * Money value -> whole cents, without IEEE-754 drift. `4.15 * 100` is
+ * `415.00000000000006` in JS, so a bare `Math.ceil` would demand 416
+ * cents of coverage for a $4.15 game — one cent more than it costs, which
+ * can force buying an extra card. Rounding to micro-cents first removes
+ * the dust before we `round`/`ceil`.
+ */
+function toMicroCents(amount: number): number {
+  return Math.round(amount * 1e6) / 1e4; // cents, still possibly fractional for >2dp inputs
+}
+
+/**
  * Finds the cheapest combination of gift cards whose combined face value
  * is at least `targetValue`, assuming unlimited stock of each card
  * (unbounded knapsack / coin-change-style DP).
@@ -43,9 +54,11 @@ export function findCheapestGiftCardCombination(
   const usable = options.filter((o) => o.value > 0 && o.totalCost >= 0);
   if (usable.length === 0 || targetValue <= 0) return null;
 
-  const CENTS = 100;
-  const target = Math.ceil(targetValue * CENTS);
-  const maxCardCents = Math.max(...usable.map((o) => Math.round(o.value * CENTS)));
+  // A card must fully cover its own face value (round to nearest cent); the
+  // target must be fully covered (ceil any sub-cent remainder).
+  const cardCents = usable.map((o) => Math.round(toMicroCents(o.value)));
+  const target = Math.ceil(toMicroCents(targetValue));
+  const maxCardCents = Math.max(...cardCents);
   // Search a little past the target: the optimal solution never needs to
   // land more than one card's value beyond it.
   const upperBound = target + maxCardCents;
@@ -56,9 +69,9 @@ export function findCheapestGiftCardCombination(
 
   for (let amount = 1; amount <= upperBound; amount++) {
     for (let i = 0; i < usable.length; i++) {
-      const cardCents = Math.round(usable[i].value * CENTS);
-      if (cardCents <= 0 || cardCents > amount) continue;
-      const prev = amount - cardCents;
+      const cc = cardCents[i];
+      if (cc <= 0 || cc > amount) continue;
+      const prev = amount - cc;
       if (bestCost[prev] === Infinity) continue;
       const cost = bestCost[prev] + usable[i].totalCost;
       if (cost < bestCost[amount]) {
@@ -86,7 +99,7 @@ export function findCheapestGiftCardCombination(
     if (i === -1) break; // unreachable amount, shouldn't happen given bestAmount check
     const card = usable[i];
     counts.set(card.id, (counts.get(card.id) ?? 0) + 1);
-    remaining -= Math.round(card.value * CENTS);
+    remaining -= cardCents[i];
   }
 
   const cards = [...counts.entries()].map(([id, quantity]) => ({ id, quantity }));
