@@ -48,6 +48,7 @@ interface ConceptPriceResponse {
 export async function syncPsGameRegion(
   input: { conceptId: string; name: string; imageUrl: string | null },
   countryCode: string,
+  editionRatio: number = 1.0,
 ): Promise<PsnSyncResult> {
   const cc = countryCode.trim().toUpperCase();
   const region = psnRegionByCountry(cc);
@@ -74,8 +75,14 @@ export async function syncPsGameRegion(
 
     const currency = price.currencyCode;
     const divisor = psnPriceDivisor(price.basePrice, price.basePriceValue);
-    const originalPrice = price.basePriceValue / divisor;
-    const currentPrice = (price.discountedValue ?? price.basePriceValue) / divisor;
+    let originalPrice = price.basePriceValue / divisor;
+    let currentPrice = (price.discountedValue ?? price.basePriceValue) / divisor;
+
+    if (editionRatio && editionRatio > 0 && editionRatio !== 1.0) {
+      originalPrice = Math.round(originalPrice * editionRatio * 100) / 100;
+      currentPrice = Math.round(currentPrice * editionRatio * 100) / 100;
+    }
+
     const discountPercent =
       originalPrice > 0 && currentPrice < originalPrice
         ? Math.round((1 - currentPrice / originalPrice) * 100)

@@ -19,13 +19,14 @@ export async function savePsGameRegionAndReport(
   input: { conceptId: string; name: string; imageUrl: string | null },
   countryCode: string,
   minProfitOverride?: number,
+  editionRatio?: number,
 ): Promise<SaveRegionResult> {
   const cookieStore = await cookies();
   if (!isValidAdminCookie(cookieStore.get(ADMIN_COOKIE_NAME)?.value)) {
     return { ok: false, message: "Log in to /admin first — saving a game requires that." };
   }
 
-  const sync = await syncPsGameRegion(input, countryCode);
+  const sync = await syncPsGameRegion(input, countryCode, editionRatio);
   if (
     !sync.ok ||
     sync.currentPrice === undefined ||

@@ -44,6 +44,7 @@ interface RegionalPriceReport {
   comparisonCurrency: string;
   prices: RegionalPrice[];
   cheapest: RegionalPrice | null;
+  editionRatio?: number;
 }
 
 // Public, read-only — this reads PlayStation's own public Store prices.
@@ -88,12 +89,14 @@ export default function PsPricesPage() {
     setSaveResult(null);
     setProfitTarget("");
     try {
+      const selectedPrice = r.discountedPrice || r.basePrice || "";
       const params = new URLSearchParams({
         productId: r.productId,
         currency: "EGP",
         name: r.name,
       });
       if (r.imageUrl) params.set("imageUrl", r.imageUrl);
+      if (selectedPrice) params.set("selectedPrice", selectedPrice);
       const res = await fetch(`/api/ps/price?${params}`);
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? "Price lookup failed.");
@@ -124,6 +127,7 @@ export default function PsPricesPage() {
         { conceptId: report.conceptId, name: report.name ?? "Unknown game", imageUrl: report.imageUrl },
         countryCode,
         override,
+        report.editionRatio,
       );
       setSaveResult(result);
     } finally {

@@ -271,7 +271,7 @@ function scoreMatch(name: string, term: string): number | null {
 }
 
 interface ScanChunk {
-  products: RawProduct[];
+  products: PsnProduct[];
   totalCount: number;
   expires: number;
 }
@@ -300,16 +300,15 @@ async function getScanChunk(
     offset,
     sortName: "productName",
     isAscending: true,
-    noStore,
-    revalidate: CHUNK_TTL_MS / 1000,
+    noStore: true,
   });
   const entry: ScanChunk = {
-    products: chunk.products,
+    products: chunk.products.map((p) => normalizeProduct(p, region)),
     totalCount: chunk.totalCount,
     expires: Date.now() + CHUNK_TTL_MS,
   };
   chunkCache.set(key, entry);
-  if (chunkCache.size > 80) chunkCache.delete(chunkCache.keys().next().value!);
+  if (chunkCache.size > 20) chunkCache.delete(chunkCache.keys().next().value!);
   return entry;
 }
 
@@ -336,7 +335,7 @@ export async function searchPsnCatalog(opts: {
 
   const ranked = raw
     .map((p) => ({ p, score: scoreMatch(p.name ?? "", term) }))
-    .filter((x): x is { p: RawProduct; score: number } => x.score !== null)
+    .filter((x): x is { p: PsnProduct; score: number } => x.score !== null)
     .sort((a, b) => a.score - b.score);
 
   return {
@@ -344,7 +343,7 @@ export async function searchPsnCatalog(opts: {
     term: opts.term.trim(),
     region,
     categoryId,
-    products: ranked.slice(0, PSN_SEARCH_LIMIT).map((x) => normalizeProduct(x.p, region)),
+    products: ranked.slice(0, PSN_SEARCH_LIMIT).map((x) => x.p),
     matchCount: ranked.length,
     scannedCount: raw.length,
     categoryTotal: first.totalCount,

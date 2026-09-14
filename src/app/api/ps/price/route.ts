@@ -18,6 +18,7 @@ export async function GET(request: Request) {
   const currency = (searchParams.get("currency")?.trim() || "EGP").toUpperCase();
   const name = searchParams.get("name");
   const imageUrl = searchParams.get("imageUrl");
+  const selectedPriceRaw = searchParams.get("selectedPrice");
   const noStore = searchParams.get("refresh") === "1";
 
   if (!productId && !conceptIdParam) {
@@ -39,6 +40,7 @@ export async function GET(request: Request) {
       imageUrl,
       comparisonCurrency: currency,
       noStore,
+      selectedPriceRaw,
     });
     return NextResponse.json(report, { headers: { "cache-control": "no-store" } });
   } catch (err) {

@@ -67,6 +67,19 @@ export interface PsnRegionalPriceReport {
   prices: PsnRegionalPrice[];
   /** Lowest convertedFinal among available, non-free regions. */
   cheapest: PsnRegionalPrice | null;
+  editionRatio?: number;
+}
+
+export function parsePriceNumber(raw: string | null): number | null {
+  if (!raw) return null;
+  const cleaned = raw.replace(/[^0-9.,]/g, "").trim();
+  if (!cleaned) return null;
+  if (cleaned.includes(",") && !cleaned.includes(".")) {
+    const num = Number(cleaned.replace(",", "."));
+    return Number.isFinite(num) && num > 0 ? num : null;
+  }
+  const num = Number(cleaned.replace(/,/g, ""));
+  return Number.isFinite(num) && num > 0 ? num : null;
 }
 
 /**
@@ -157,6 +170,7 @@ export async function getConceptRegionalPrices(opts: {
   comparisonCurrency?: string;
   regions?: PsnRegion[];
   noStore?: boolean;
+  selectedPriceRaw?: string | null;
 }): Promise<PsnRegionalPriceReport> {
   const {
     conceptId,
@@ -165,6 +179,7 @@ export async function getConceptRegionalPrices(opts: {
     comparisonCurrency = "EGP",
     regions = PSN_PRICE_REGIONS,
     noStore = false,
+    selectedPriceRaw = null,
   } = opts;
 
   const fxBase = "USD";
@@ -173,6 +188,31 @@ export async function getConceptRegionalPrices(opts: {
   const prices = await mapWithConcurrency(regions, 5, (region) =>
     priceForRegion(conceptId, region, comparisonCurrency, rates, fxBase, noStore),
   );
+
+  const selectedPrice = parsePriceNumber(selectedPriceRaw);
+  const usPriceObj = prices.find(
+    (p) => p.countryCode === "US" && p.available && p.final !== null && p.final > 0,
+  );
+
+  let editionRatio = 1.0;
+  if (selectedPrice && usPriceObj && usPriceObj.final && usPriceObj.final > 0) {
+    editionRatio = selectedPrice / usPriceObj.final;
+  }
+
+  if (editionRatio !== 1.0 && Number.isFinite(editionRatio) && editionRatio > 0) {
+    for (const p of prices) {
+      if (p.available && p.original !== null && p.final !== null) {
+        p.original = Math.round(p.original * editionRatio * 100) / 100;
+        p.final = Math.round(p.final * editionRatio * 100) / 100;
+        if (p.convertedOriginal !== null) {
+          p.convertedOriginal = Math.round(p.convertedOriginal * editionRatio * 100) / 100;
+        }
+        if (p.convertedFinal !== null) {
+          p.convertedFinal = Math.round(p.convertedFinal * editionRatio * 100) / 100;
+        }
+      }
+    }
+  }
 
   const cheapest =
     prices
@@ -187,5 +227,6 @@ export async function getConceptRegionalPrices(opts: {
     comparisonCurrency,
     prices,
     cheapest,
+    editionRatio,
   };
 }
