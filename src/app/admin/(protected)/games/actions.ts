@@ -28,6 +28,7 @@ export async function deleteGameRegion(
 export async function getGameRegionReport(
   gameRegionId: string,
   platform: Platform = "steam",
+  minProfitOverride?: number,
 ): Promise<RegionReportResult> {
   const supabase = createAdminClient();
   const { data: region, error } = await supabase
@@ -55,5 +56,6 @@ export async function getGameRegionReport(
     currentPrice: region.current_price,
     discountPercent: region.discount_percent,
     currency: region.currency,
+    minProfitOverride,
   });
 }

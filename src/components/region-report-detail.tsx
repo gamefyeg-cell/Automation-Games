@@ -1,8 +1,13 @@
-import { ArrowRight, TrendingUp } from "lucide-react";
+"use client";
+
+import { useState, useTransition, useEffect } from "react";
+import { ArrowRight, Loader2, TrendingUp } from "lucide-react";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, Thead, Th, Tr, Td } from "@/components/ui/table";
+import { buttonClass } from "@/components/ui/button";
 import { PublishButton } from "@/components/publish-button";
+import { getGameRegionReport } from "@/app/admin/(protected)/games/actions";
 import type { RegionReport, PriceScenario } from "@/lib/pricing/report";
 
 /**
@@ -13,7 +18,56 @@ import type { RegionReport, PriceScenario } from "@/lib/pricing/report";
  * other. Shared by the /prices save-a-region flow and /admin/games' per-row
  * report.
  */
-export function RegionReportDetail({ report }: { report: RegionReport }) {
+export function RegionReportDetail({ report: initialReport }: { report: RegionReport }) {
+  const [report, setReport] = useState<RegionReport>(initialReport);
+  const [profitInput, setProfitInput] = useState(
+    initialReport.minProfitIsCustom ? String(initialReport.minimumProfit) : "",
+  );
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setReport(initialReport);
+    setProfitInput(initialReport.minProfitIsCustom ? String(initialReport.minimumProfit) : "");
+    setError(null);
+  }, [initialReport]);
+
+  function handleApplyProfit(e?: React.FormEvent) {
+    if (e) e.preventDefault();
+    setError(null);
+
+    let override: number | undefined;
+    if (profitInput.trim() !== "") {
+      override = Number(profitInput);
+      if (!Number.isFinite(override) || override < 0) {
+        setError("Enter a valid profit amount (or leave blank).");
+        return;
+      }
+    }
+
+    startTransition(async () => {
+      const res = await getGameRegionReport(report.gameRegionId, report.platform, override);
+      if (res.ok && res.report) {
+        setReport(res.report);
+      } else {
+        setError(res.message || "Failed to recalculate report.");
+      }
+    });
+  }
+
+  function handleResetProfit() {
+    setError(null);
+    setProfitInput("");
+    startTransition(async () => {
+      const res = await getGameRegionReport(report.gameRegionId, report.platform, undefined);
+      if (res.ok && res.report) {
+        setReport(res.report);
+      } else {
+        setError(res.message || "Failed to reset report.");
+      }
+    });
+  }
+
   const hasDiscount = report.discountPercent > 0;
   const storeLabel = report.platform === "playstation" ? "PlayStation price" : "Steam price";
 
@@ -48,6 +102,59 @@ export function RegionReportDetail({ report }: { report: RegionReport }) {
           </Stat>
         </CardBody>
       </Card>
+
+      <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 p-4">
+        <form onSubmit={handleApplyProfit} className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="text-xs font-medium text-zinc-300">
+              Profit on this game ({report.productCurrency}):
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={profitInput}
+                onChange={(e) => setProfitInput(e.target.value)}
+                placeholder={String(report.minimumProfit)}
+                className="w-28 rounded border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-xs text-zinc-100 placeholder:text-zinc-500 focus:border-indigo-500 focus:outline-none"
+              />
+              <button
+                type="submit"
+                disabled={isPending}
+                className={buttonClass("primary", "sm")}
+              >
+                {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Update profit"}
+              </button>
+              {report.minProfitIsCustom && (
+                <button
+                  type="button"
+                  onClick={handleResetProfit}
+                  disabled={isPending}
+                  className="text-xs text-zinc-500 hover:text-zinc-300 underline ml-1"
+                >
+                  Reset to default
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="text-xs text-zinc-400">
+            {report.minProfitIsCustom ? (
+              <Badge tone="accent">Custom profit: {report.minimumProfit} {report.productCurrency}</Badge>
+            ) : (
+              <span className="text-zinc-500">
+                Using default profit: {report.minimumProfit} {report.productCurrency}
+              </span>
+            )}
+          </div>
+        </form>
+        {error && (
+          <p className="mt-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+            {error}
+          </p>
+        )}
+      </div>
 
       {hasDiscount ? (
         <>
