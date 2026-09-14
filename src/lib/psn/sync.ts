@@ -83,32 +83,109 @@ export async function syncPsGameRegion(
 
     const supabase = createAdminClient();
 
-    const { data: game, error: gameError } = await supabase
+    // 1. Fetch or insert game (avoids PostgREST ON CONFLICT restriction on partial index)
+    let gameId: string | undefined;
+
+    const { data: existingGame } = await supabase
       .from("games")
-      .upsert(
-        {
+      .select("id")
+      .eq("ps_concept_id", input.conceptId)
+      .maybeSingle();
+
+    if (existingGame) {
+      gameId = existingGame.id;
+      const { error: updateGameError } = await supabase
+        .from("games")
+        .update({
+          name: input.name,
+          image_url: input.imageUrl,
+          steam_url: `https://store.playstation.com/en-us/concept/${input.conceptId}`,
+        })
+        .eq("id", gameId);
+
+      if (updateGameError) {
+        throw new Error(updateGameError.message);
+      }
+    } else {
+      const baseSlug = slugify(input.name) || `concept-${input.conceptId}`;
+      const { data: newGame, error: insertGameError } = await supabase
+        .from("games")
+        .insert({
           platform: "playstation",
           ps_concept_id: input.conceptId,
           name: input.name,
-          slug: slugify(input.name) || `concept-${input.conceptId}`,
+          slug: baseSlug,
           image_url: input.imageUrl,
           steam_url: `https://store.playstation.com/en-us/concept/${input.conceptId}`,
-        },
-        { onConflict: "ps_concept_id" },
-      )
-      .select("id")
-      .single();
+        })
+        .select("id")
+        .single();
 
-    if (gameError || !game) {
-      throw new Error(gameError?.message ?? "Failed to upsert game.");
+      if (insertGameError) {
+        if (insertGameError.code === "23505" && insertGameError.message.includes("slug")) {
+          const { data: retryGame, error: retryError } = await supabase
+            .from("games")
+            .insert({
+              platform: "playstation",
+              ps_concept_id: input.conceptId,
+              name: input.name,
+              slug: `${baseSlug}-${input.conceptId}`,
+              image_url: input.imageUrl,
+              steam_url: `https://store.playstation.com/en-us/concept/${input.conceptId}`,
+            })
+            .select("id")
+            .single();
+
+          if (retryError || !retryGame) {
+            throw new Error(retryError?.message ?? "Failed to insert game.");
+          }
+          gameId = retryGame.id;
+        } else {
+          throw new Error(insertGameError.message);
+        }
+      } else if (newGame) {
+        gameId = newGame.id;
+      }
     }
 
-    const { data: gameRegion, error: regionError } = await supabase
+    if (!gameId) {
+      throw new Error("Failed to find or create PlayStation game.");
+    }
+
+    // 2. Fetch or insert game region
+    let gameRegionId: string | undefined;
+
+    const { data: existingRegion } = await supabase
       .from("game_regions")
-      .upsert(
-        {
+      .select("id")
+      .eq("game_id", gameId)
+      .eq("country_code", cc)
+      .maybeSingle();
+
+    if (existingRegion) {
+      gameRegionId = existingRegion.id;
+      const { error: updateRegionError } = await supabase
+        .from("game_regions")
+        .update({
           platform: "playstation",
-          game_id: game.id,
+          currency,
+          original_price: originalPrice,
+          current_price: currentPrice,
+          discount_percent: discountPercent,
+          sale_active: discountPercent > 0,
+          last_updated: new Date().toISOString(),
+        })
+        .eq("id", gameRegionId);
+
+      if (updateRegionError) {
+        throw new Error(updateRegionError.message);
+      }
+    } else {
+      const { data: newRegion, error: insertRegionError } = await supabase
+        .from("game_regions")
+        .insert({
+          platform: "playstation",
+          game_id: gameId,
           country_code: cc,
           currency,
           original_price: originalPrice,
@@ -116,19 +193,19 @@ export async function syncPsGameRegion(
           discount_percent: discountPercent,
           sale_active: discountPercent > 0,
           last_updated: new Date().toISOString(),
-        },
-        { onConflict: "game_id,country_code" },
-      )
-      .select("id")
-      .single();
+        })
+        .select("id")
+        .single();
 
-    if (regionError || !gameRegion) {
-      throw new Error(regionError?.message ?? "Failed to upsert game region.");
+      if (insertRegionError || !newRegion) {
+        throw new Error(insertRegionError?.message ?? "Failed to insert game region.");
+      }
+      gameRegionId = newRegion.id;
     }
 
     const { error: historyError } = await supabase.from("game_price_history").insert({
       platform: "playstation",
-      game_id: game.id,
+      game_id: gameId,
       country_code: cc,
       currency,
       original_price: originalPrice,
@@ -142,8 +219,8 @@ export async function syncPsGameRegion(
       countryCode: cc,
       ok: true,
       gameName: input.name,
-      gameId: game.id,
-      gameRegionId: gameRegion.id,
+      gameId,
+      gameRegionId,
       imageUrl: input.imageUrl,
       originalPrice,
       currentPrice,

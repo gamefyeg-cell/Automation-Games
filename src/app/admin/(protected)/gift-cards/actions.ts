@@ -98,6 +98,17 @@ export async function deleteGiftCard(id: string, platform: Platform): Promise<Mu
   return { ok: true };
 }
 
+export async function deleteGiftCards(ids: string[], platform: Platform): Promise<MutationResult> {
+  if (ids.length === 0) return { ok: true };
+  const supabase = createAdminClient();
+  const { error } = await supabase.from("gift_cards").delete().in("id", ids);
+  if (error) return { ok: false, message: error.message };
+
+  revalidatePath(giftCardsPath(platform));
+  revalidatePath(platform === "playstation" ? "/ps" : "/admin");
+  return { ok: true };
+}
+
 /**
  * Adds a single gift card by hand — the simple path for "I just want to
  * add the one card I bought", no CSV needed.

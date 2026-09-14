@@ -14,11 +14,12 @@ import {
 } from "lucide-react";
 import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { buttonClass } from "@/components/ui/button";
 import { inputClass, labelClass } from "@/components/ui/input";
 import { Table, Thead, Tr, Td, EmptyRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils/cn";
 import type { Platform } from "@/lib/supabase/database.types";
-import { deleteGiftCard, updateGiftCard, type GiftCardPatch } from "./actions";
+import { deleteGiftCard, deleteGiftCards, updateGiftCard, type GiftCardPatch } from "./actions";
 
 export interface GiftCardRow {
   id: string;
@@ -51,6 +52,10 @@ export function GiftCardsTable({ cards, platform }: { cards: GiftCardRow[]; plat
     key: "provider",
     dir: "asc",
   });
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isBulkPending, startBulkTransition] = useTransition();
+  const [bulkError, setBulkError] = useState<string | null>(null);
 
   const providers = useMemo(() => uniqueSorted(cards.map((c) => c.provider)), [cards]);
   const regions = useMemo(
@@ -88,6 +93,69 @@ export function GiftCardsTable({ cards, platform }: { cards: GiftCardRow[]; plat
       return 0;
     });
   }, [cards, q, provider, region, currency, status, minValue, maxValue, sort]);
+
+  const filteredIds = useMemo(() => filtered.map((c) => c.id), [filtered]);
+
+  const allSelected =
+    filteredIds.length > 0 && filteredIds.every((id) => selectedIds.has(id));
+  const someSelected =
+    filteredIds.some((id) => selectedIds.has(id)) && !allSelected;
+
+  function toggleSelectAll() {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allSelected) {
+        for (const id of filteredIds) {
+          next.delete(id);
+        }
+      } else {
+        for (const id of filteredIds) {
+          next.add(id);
+        }
+      }
+      return next;
+    });
+  }
+
+  function toggleSelectRow(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+  }
+
+  function handleBulkDelete() {
+    const count = selectedIds.size;
+    if (count === 0) return;
+    if (
+      !confirm(
+        `Are you sure you want to delete ${count} gift card${
+          count === 1 ? "" : "s"
+        }? This action cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+
+    setBulkError(null);
+    startBulkTransition(async () => {
+      const res = await deleteGiftCards(Array.from(selectedIds), platform);
+      if (res.ok) {
+        setSelectedIds(new Set());
+      } else {
+        setBulkError(res.message ?? "Failed to delete gift cards.");
+      }
+    });
+  }
 
   const anyFilter =
     q || provider || region || currency || status !== "all" || minValue || maxValue;
@@ -196,9 +264,52 @@ export function GiftCardsTable({ cards, platform }: { cards: GiftCardRow[]; plat
         </CardBody>
       </Card>
 
+      {selectedIds.size > 0 && (
+        <div className="flex items-center justify-between rounded-xl border border-red-500/20 bg-red-950/20 px-4 py-3 text-sm text-zinc-200 shadow-sm">
+          <div className="flex items-center gap-3">
+            <span className="font-medium text-red-200">
+              {selectedIds.size} card{selectedIds.size === 1 ? "" : "s"} selected
+            </span>
+            <button
+              onClick={clearSelection}
+              className="text-xs text-zinc-400 hover:text-zinc-200 underline underline-offset-2"
+            >
+              Deselect all
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            {bulkError && <span className="text-xs text-red-400">{bulkError}</span>}
+            <button
+              onClick={handleBulkDelete}
+              disabled={isBulkPending}
+              className={buttonClass("danger", "sm")}
+            >
+              {isBulkPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+              Delete selected ({selectedIds.size})
+            </button>
+          </div>
+        </div>
+      )}
+
       <Table>
         <Thead>
           <tr>
+            <th className="w-10 px-4 py-3">
+              <input
+                type="checkbox"
+                ref={(el) => {
+                  if (el) el.indeterminate = someSelected;
+                }}
+                checked={allSelected}
+                onChange={toggleSelectAll}
+                className="h-4 w-4 rounded border-zinc-700 bg-zinc-900 text-indigo-500 focus:ring-indigo-500 focus:ring-offset-zinc-900 cursor-pointer"
+                aria-label="Select all visible gift cards"
+              />
+            </th>
             <SortableTh label="Provider" k="provider" sort={sort} onSort={toggleSort} />
             <th className="px-4 py-3">Region</th>
             <SortableTh label="Value" k="value" sort={sort} onSort={toggleSort} align="right" />
@@ -223,10 +334,16 @@ export function GiftCardsTable({ cards, platform }: { cards: GiftCardRow[]; plat
         </Thead>
         <tbody>
           {filtered.map((c) => (
-            <GiftCardTableRow key={c.id} card={c} platform={platform} />
+            <GiftCardTableRow
+              key={c.id}
+              card={c}
+              platform={platform}
+              selected={selectedIds.has(c.id)}
+              onToggleSelect={() => toggleSelectRow(c.id)}
+            />
           ))}
           {filtered.length === 0 && (
-            <EmptyRow colSpan={8}>
+            <EmptyRow colSpan={9}>
               {cards.length === 0 ? "No gift cards yet." : "No cards match these filters."}
             </EmptyRow>
           )}
@@ -236,7 +353,17 @@ export function GiftCardsTable({ cards, platform }: { cards: GiftCardRow[]; plat
   );
 }
 
-function GiftCardTableRow({ card, platform }: { card: GiftCardRow; platform: Platform }) {
+function GiftCardTableRow({
+  card,
+  platform,
+  selected,
+  onToggleSelect,
+}: {
+  card: GiftCardRow;
+  platform: Platform;
+  selected: boolean;
+  onToggleSelect: () => void;
+}) {
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState(() => toForm(card));
@@ -288,7 +415,16 @@ function GiftCardTableRow({ card, platform }: { card: GiftCardRow; platform: Pla
   if (editing) {
     const previewTotal = (Number(form.purchase_price) || 0) + (Number(form.fees) || 0);
     return (
-      <Tr className="align-top">
+      <Tr className={cn("align-top", selected && "bg-indigo-950/20")}>
+        <Td className="w-10">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggleSelect}
+            className="h-4 w-4 rounded border-zinc-700 bg-zinc-900 text-indigo-500 focus:ring-indigo-500 focus:ring-offset-zinc-900 cursor-pointer"
+            aria-label={`Select ${card.provider} ${card.value} ${card.value_currency}`}
+          />
+        </Td>
         <Td>
           <input
             value={form.provider}
@@ -389,7 +525,16 @@ function GiftCardTableRow({ card, platform }: { card: GiftCardRow; platform: Pla
   }
 
   return (
-    <Tr>
+    <Tr className={cn(selected && "bg-indigo-950/20 hover:bg-indigo-950/30")}>
+      <Td className="w-10">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggleSelect}
+          className="h-4 w-4 rounded border-zinc-700 bg-zinc-900 text-indigo-500 focus:ring-indigo-500 focus:ring-offset-zinc-900 cursor-pointer"
+          aria-label={`Select ${card.provider} ${card.value} ${card.value_currency}`}
+        />
+      </Td>
       <Td>
         <span className="font-medium text-zinc-100">{card.provider}</span>
         {card.product_name && card.product_name !== card.provider && (

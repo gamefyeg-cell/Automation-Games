@@ -17,9 +17,17 @@ export function Thead({ children }: { children: ReactNode }) {
   );
 }
 
-export function Th({ children, align }: { children: ReactNode; align?: "right" }) {
+export function Th({
+  children,
+  align,
+  className,
+}: {
+  children: ReactNode;
+  align?: "right";
+  className?: string;
+}) {
   return (
-    <th className={cn("px-4 py-3 whitespace-nowrap", align === "right" && "text-right")}>
+    <th className={cn("px-4 py-3 whitespace-nowrap", align === "right" && "text-right", className)}>
       {children}
     </th>
   );
@@ -53,11 +61,13 @@ export function Td({
   align,
   muted,
   colSpan,
+  className,
 }: {
   children: ReactNode;
   align?: "right";
   muted?: boolean;
   colSpan?: number;
+  className?: string;
 }) {
   return (
     <td
@@ -66,6 +76,7 @@ export function Td({
         "px-4 py-3 whitespace-nowrap",
         align === "right" && "text-right tabular-nums",
         muted && "text-zinc-500",
+        className,
       )}
     >
       {children}
