@@ -22,6 +22,16 @@ interface SearchResult {
   discountedPrice: string | null;
 }
 
+interface GiftCardSummary {
+  id: string;
+  provider: string;
+  productName: string;
+  value: number;
+  valueCurrency: string;
+  quantity: number;
+  lineCost: number;
+}
+
 interface RegionalPrice {
   countryCode: string;
   label: string;
@@ -34,6 +44,10 @@ interface RegionalPrice {
   discountText: string | null;
   convertedOriginal: number | null;
   convertedFinal: number | null;
+  giftCardCost?: number | null;
+  giftCardValue?: number | null;
+  giftCardCards?: GiftCardSummary[];
+  hasGiftCards?: boolean;
 }
 
 interface RegionalPriceReport {
@@ -137,7 +151,29 @@ export default function PsPricesPage() {
 
   const sortedPrices = report?.prices
     .slice()
-    .sort((a, b) => (a.convertedFinal ?? Infinity) - (b.convertedFinal ?? Infinity));
+    .sort((a, b) => {
+      const aCost = a.available && !a.isFree ? (a.giftCardCost ?? null) : null;
+      const bCost = b.available && !b.isFree ? (b.giftCardCost ?? null) : null;
+
+      // 1. Both have gift card calculations: rank by lowest gift card cost
+      if (aCost !== null && bCost !== null) {
+        return aCost - bCost;
+      }
+      // 2. Region with active gift cards comes before region without
+      if (aCost !== null) return -1;
+      if (bCost !== null) return 1;
+
+      // 3. Fall back to converted store price
+      const aFinal = a.available && !a.isFree ? (a.convertedFinal ?? null) : null;
+      const bFinal = b.available && !b.isFree ? (b.convertedFinal ?? null) : null;
+      if (aFinal !== null && bFinal !== null) {
+        return aFinal - bFinal;
+      }
+      if (aFinal !== null) return -1;
+      if (bFinal !== null) return 1;
+
+      return a.label.localeCompare(b.label);
+    });
 
   return (
     <div className="mx-auto max-w-6xl px-8 py-10">
@@ -245,12 +281,25 @@ export default function PsPricesPage() {
             <div className="mt-3 inline-flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-400">
               <TrendingDown className="h-4 w-4 shrink-0" strokeWidth={1.75} />
               Cheapest: <strong className="font-semibold">{report.cheapest.label}</strong> —{" "}
-              <span className="tabular-nums">
-                {report.cheapest.convertedFinal} {report.comparisonCurrency}
-              </span>
-              <span className="text-emerald-400/70">
-                ({report.cheapest.final} {report.cheapest.currency})
-              </span>
+              {report.cheapest.giftCardCost !== null && report.cheapest.giftCardCost !== undefined ? (
+                <>
+                  <span className="tabular-nums font-semibold">
+                    {report.cheapest.giftCardCost} {report.comparisonCurrency}
+                  </span>{" "}
+                  <span className="text-emerald-400/80">
+                    in gift cards (Store: {report.cheapest.final} {report.cheapest.currency})
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="tabular-nums">
+                    {report.cheapest.convertedFinal} {report.comparisonCurrency}
+                  </span>{" "}
+                  <span className="text-emerald-400/70">
+                    ({report.cheapest.final} {report.cheapest.currency})
+                  </span>
+                </>
+              )}
             </div>
           )}
 
@@ -286,8 +335,8 @@ export default function PsPricesPage() {
                   <Th align="right">Before discount</Th>
                   <Th align="right">Now</Th>
                   <Th align="right">Discount</Th>
-                  <Th align="right">Before, in {report.comparisonCurrency}</Th>
-                  <Th align="right">Now, in {report.comparisonCurrency}</Th>
+                  <Th align="right">Store in {report.comparisonCurrency}</Th>
+                  <Th align="right">Gift Cards ({report.comparisonCurrency})</Th>
                   <Th align="right">Choose</Th>
                 </tr>
               </Thead>
@@ -319,12 +368,27 @@ export default function PsPricesPage() {
                       )}
                     </Td>
                     <Td align="right" muted>
-                      {p.convertedOriginal !== null ? p.convertedOriginal : "—"}
+                      {p.convertedFinal !== null ? p.convertedFinal : "—"}
                     </Td>
                     <Td align="right">
-                      <span className="font-medium text-zinc-100">
-                        {p.convertedFinal !== null ? p.convertedFinal : "—"}
-                      </span>
+                      {p.giftCardCost !== null && p.giftCardCost !== undefined ? (
+                        <div className="flex flex-col items-end">
+                          <span className="font-semibold text-emerald-400">
+                            {p.giftCardCost} {report.comparisonCurrency}
+                          </span>
+                          {p.giftCardCards && p.giftCardCards.length > 0 && (
+                            <span className="text-[11px] text-zinc-400">
+                              {p.giftCardCards
+                                .map((c) => `${c.quantity}× ${c.value} ${c.valueCurrency}`)
+                                .join(" + ")}
+                            </span>
+                          )}
+                        </div>
+                      ) : p.available && !p.isFree ? (
+                        <span className="text-xs text-zinc-500">No matching cards</span>
+                      ) : (
+                        "—"
+                      )}
                     </Td>
                     <Td align="right">
                       {p.available && !p.isFree && (

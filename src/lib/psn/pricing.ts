@@ -15,6 +15,10 @@ import { psnGraphql } from "@/lib/psstore/client";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import { convertAmount, getExchangeRates } from "@/lib/currency/fx";
 import { PSN_PRICE_REGIONS, psnPriceDivisor, type PsnRegion } from "@/lib/psn/regions";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { withPlatformFallback } from "@/lib/supabase/platform-filter";
+import { giftCardMatchesRegion } from "@/lib/steam/regions";
+import { findCheapestGiftCardCombination, type GiftCardOption } from "@/lib/pricing/engine";
 
 interface ConceptPriceResponse {
   conceptRetrieve?: {
@@ -42,6 +46,16 @@ interface ProductByIdResponse {
   } | null;
 }
 
+export interface PsnGiftCardSummary {
+  id: string;
+  provider: string;
+  productName: string;
+  value: number;
+  valueCurrency: string;
+  quantity: number;
+  lineCost: number;
+}
+
 export interface PsnRegionalPrice {
   countryCode: string;
   locale: string;
@@ -56,6 +70,11 @@ export interface PsnRegionalPrice {
   /** original / final converted into the report's comparisonCurrency. Null when not comparable. */
   convertedOriginal: number | null;
   convertedFinal: number | null;
+  /** Lowest total cost in comparisonCurrency (e.g. EGP) to fund this price via active gift cards. Null if no combination covers it. */
+  giftCardCost: number | null;
+  giftCardValue: number | null;
+  giftCardCards: PsnGiftCardSummary[];
+  hasGiftCards: boolean;
 }
 
 export interface PsnRegionalPriceReport {
@@ -65,7 +84,7 @@ export interface PsnRegionalPriceReport {
   storeUrl: string;
   comparisonCurrency: string;
   prices: PsnRegionalPrice[];
-  /** Lowest convertedFinal among available, non-free regions. */
+  /** Lowest giftCardCost (or lowest convertedFinal if no gift cards) among available, non-free regions. */
   cheapest: PsnRegionalPrice | null;
   editionRatio?: number;
 }
@@ -117,6 +136,10 @@ async function priceForRegion(
     discountText: null,
     convertedOriginal: null,
     convertedFinal: null,
+    giftCardCost: null,
+    giftCardValue: null,
+    giftCardCards: [],
+    hasGiftCards: false,
   };
 
   let price: NonNullable<
@@ -214,10 +237,80 @@ export async function getConceptRegionalPrices(opts: {
     }
   }
 
+  // Calculate gift card combination for each region
+  try {
+    const supabase = createAdminClient();
+    const CARD_COLS =
+      "id, provider, product_name, value, value_currency, purchase_price, fees, total_cost, purchase_currency, region";
+    const { data: giftCards } = await withPlatformFallback(
+      supabase
+        .from("gift_cards")
+        .select(CARD_COLS)
+        .eq("platform", "playstation")
+        .eq("active", true),
+      () => supabase.from("gift_cards").select(CARD_COLS).eq("active", true),
+      "playstation",
+    );
+
+    if (giftCards && giftCards.length > 0) {
+      for (const p of prices) {
+        if (!p.available || p.isFree || p.final === null || p.final <= 0 || !p.currency) {
+          continue;
+        }
+
+        const matchingCards = giftCards.filter(
+          (c) =>
+            giftCardMatchesRegion(p.countryCode, c.region) &&
+            c.value_currency.toUpperCase() === p.currency!.toUpperCase(),
+        );
+
+        if (matchingCards.length === 0) continue;
+
+        const cardOptions: GiftCardOption[] = matchingCards.map((c) => ({
+          id: c.id,
+          value: c.value,
+          totalCost: c.total_cost,
+        }));
+
+        const combo = findCheapestGiftCardCombination(p.final, cardOptions);
+        if (combo) {
+          const cardsById = new Map(matchingCards.map((c) => [c.id, c]));
+          p.giftCardCost = combo.totalCost;
+          p.giftCardValue = combo.totalValue;
+          p.hasGiftCards = true;
+          p.giftCardCards = combo.cards.map((c) => {
+            const card = cardsById.get(c.id);
+            return {
+              id: c.id,
+              provider: card?.provider ?? "Gift Card",
+              productName: card?.product_name ?? card?.provider ?? "PSN Card",
+              value: card?.value ?? 0,
+              valueCurrency: card?.value_currency ?? p.currency ?? "",
+              quantity: c.quantity,
+              lineCost: Math.round((card?.total_cost ?? 0) * c.quantity * 100) / 100,
+            };
+          });
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Failed to calculate gift card combinations for PS prices:", err);
+  }
+
+  // Pick cheapest: first check regions with valid gift card cost, fallback to convertedFinal
+  const withGiftCards = prices
+    .filter(
+      (p): p is PsnRegionalPrice & { giftCardCost: number } =>
+        p.available && !p.isFree && p.giftCardCost !== null && p.giftCardCost > 0,
+    )
+    .sort((a, b) => a.giftCardCost - b.giftCardCost);
+
   const cheapest =
+    withGiftCards[0] ??
     prices
       .filter((p): p is PsnRegionalPrice & { convertedFinal: number } => p.convertedFinal !== null)
-      .sort((a, b) => a.convertedFinal - b.convertedFinal)[0] ?? null;
+      .sort((a, b) => a.convertedFinal - b.convertedFinal)[0] ??
+    null;
 
   return {
     conceptId,
@@ -230,3 +323,4 @@ export async function getConceptRegionalPrices(opts: {
     editionRatio,
   };
 }
+
