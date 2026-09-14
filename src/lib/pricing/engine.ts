@@ -56,9 +56,24 @@ export function findCheapestGiftCardCombination(
 
   // A card must fully cover its own face value (round to nearest cent); the
   // target must be fully covered (ceil any sub-cent remainder).
-  const cardCents = usable.map((o) => Math.round(toMicroCents(o.value)));
   const target = Math.ceil(toMicroCents(targetValue));
-  const maxCardCents = Math.max(...cardCents);
+
+  // Deduplicate by denomination: if two cards share the same face value in
+  // cents, only the cheapest one can ever improve the solution — keeping
+  // duplicates just adds noise and makes tie-breaking depend on DB insertion
+  // order.
+  const cheapestByDenom = new Map<number, { option: GiftCardOption; cents: number }>();
+  for (const o of usable) {
+    const cents = Math.round(toMicroCents(o.value));
+    const existing = cheapestByDenom.get(cents);
+    if (!existing || o.totalCost < existing.option.totalCost) {
+      cheapestByDenom.set(cents, { option: o, cents });
+    }
+  }
+  const dedupedOptions = [...cheapestByDenom.values()].map((e) => e.option);
+  const dedupedCents = [...cheapestByDenom.keys()];
+
+  const maxCardCents = Math.max(...dedupedCents);
   // Search a little past the target: the optimal solution never needs to
   // land more than one card's value beyond it.
   const upperBound = target + maxCardCents;
@@ -68,12 +83,12 @@ export function findCheapestGiftCardCombination(
   bestCost[0] = 0;
 
   for (let amount = 1; amount <= upperBound; amount++) {
-    for (let i = 0; i < usable.length; i++) {
-      const cc = cardCents[i];
+    for (let i = 0; i < dedupedOptions.length; i++) {
+      const cc = dedupedCents[i];
       if (cc <= 0 || cc > amount) continue;
       const prev = amount - cc;
       if (bestCost[prev] === Infinity) continue;
-      const cost = bestCost[prev] + usable[i].totalCost;
+      const cost = bestCost[prev] + dedupedOptions[i].totalCost;
       if (cost < bestCost[amount]) {
         bestCost[amount] = cost;
         choice[amount] = i;
@@ -97,15 +112,15 @@ export function findCheapestGiftCardCombination(
   while (remaining > 0) {
     const i = choice[remaining];
     if (i === -1) break; // unreachable amount, shouldn't happen given bestAmount check
-    const card = usable[i];
+    const card = dedupedOptions[i];
     counts.set(card.id, (counts.get(card.id) ?? 0) + 1);
-    remaining -= cardCents[i];
+    remaining -= dedupedCents[i];
   }
 
   const cards = [...counts.entries()].map(([id, quantity]) => ({ id, quantity }));
   const totalValue =
     cards.reduce((sum, c) => {
-      const card = usable.find((o) => o.id === c.id)!;
+      const card = dedupedOptions.find((o) => o.id === c.id)!;
       return sum + card.value * c.quantity;
     }, 0) ?? 0;
 

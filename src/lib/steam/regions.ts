@@ -25,6 +25,15 @@ export const COUNTRY_NAMES: Record<string, string> = {
   UA: "UKRAINE",
   IN: "INDIA",
   EG: "EGYPT",
+  // PlayStation-only regions (not in Steam's region list)
+  AR: "ARGENTINA",
+  ZA: "SOUTH AFRICA",
+  SA: "SAUDI ARABIA",
+  AE: "UNITED ARAB EMIRATES",
+  KR: "SOUTH KOREA",
+  HK: "HONG KONG",
+  ID: "INDONESIA",
+  TH: "THAILAND",
 };
 
 /**
