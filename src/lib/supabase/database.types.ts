@@ -189,6 +189,36 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["gift_cards"]["Insert"]>;
         Relationships: [];
       };
+      sellable_gift_cards: {
+        Row: {
+          id: string;
+          platform: Platform;
+          region: string;
+          card_name: string;
+          cost: number;
+          selling_price: number;
+          profit: number;
+          profit_margin: number;
+          currency: string;
+          active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          platform?: Platform;
+          region: string;
+          card_name: string;
+          cost: number;
+          selling_price: number;
+          currency?: string;
+          active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["sellable_gift_cards"]["Insert"]>;
+        Relationships: [];
+      };
       pricing_settings: {
         Row: {
           id: true;

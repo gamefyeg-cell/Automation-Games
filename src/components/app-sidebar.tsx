@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   ArrowLeftRight,
+  CreditCard,
   Gamepad2,
   Gift,
   Joystick,
@@ -30,7 +31,8 @@ const STEAM_NAV: NavItem[] = [
   { href: "/admin", label: "Opportunities", icon: TrendingUp, exact: true },
   { href: "/prices", label: "Steam Prices", icon: Search },
   { href: "/admin/games", label: "Steam Games", icon: Gamepad2 },
-  { href: "/admin/gift-cards", label: "Gift Cards", icon: Gift },
+  { href: "/admin/gift-cards", label: "Supply Gift Cards", icon: Gift },
+  { href: "/admin/sell-gift-cards", label: "Sell Gift Cards", icon: CreditCard },
   { href: "/admin/products", label: "Products", icon: Package },
   { href: "/admin/settings", label: "Pricing Settings", icon: Settings },
 ];
@@ -40,7 +42,8 @@ const PS_NAV: NavItem[] = [
   { href: "/ps/prices", label: "PlayStation Prices", icon: Search },
   { href: "/ps/browse", label: "Browse Store", icon: LayoutGrid },
   { href: "/ps/games", label: "PlayStation Games", icon: Joystick },
-  { href: "/ps/gift-cards", label: "Gift Cards", icon: Gift },
+  { href: "/ps/gift-cards", label: "Supply Gift Cards", icon: Gift },
+  { href: "/ps/sell-gift-cards", label: "Sell Gift Cards", icon: CreditCard },
   { href: "/ps/products", label: "Products", icon: Package },
   { href: "/admin/settings", label: "Pricing Settings", icon: Settings },
 ];
