@@ -47,16 +47,40 @@ function toMicroCents(amount: number): number {
  * overshooting by less than one extra card is never worse than
  * overshooting by more.
  */
+/**
+ * Greatest common divisor of two non-negative integers.
+ */
+function gcd(a: number, b: number): number {
+  a = Math.abs(a);
+  b = Math.abs(b);
+  while (b > 0) {
+    const t = b;
+    b = a % b;
+    a = t;
+  }
+  return a || 1;
+}
+
+/**
+ * Finds the cheapest combination of gift cards whose combined face value
+ * is at least `targetValue`, assuming unlimited stock of each card
+ * (unbounded knapsack / coin-change-style DP).
+ *
+ * Values are converted to integer "cents" internally to avoid floating
+ * point drift, then rescaled by the GCD of all card denominations to
+ * avoid huge DP arrays for currencies with large denominations (e.g. IDR,
+ * JPY, TRY, KRW, HUF).
+ */
 export function findCheapestGiftCardCombination(
   targetValue: number,
   options: GiftCardOption[],
 ): GiftCardCombination | null {
-  const usable = options.filter((o) => o.value > 0 && o.totalCost >= 0);
-  if (usable.length === 0 || targetValue <= 0) return null;
+  if (!Number.isFinite(targetValue) || targetValue <= 0) return null;
 
-  // A card must fully cover its own face value (round to nearest cent); the
-  // target must be fully covered (ceil any sub-cent remainder).
-  const target = Math.ceil(toMicroCents(targetValue));
+  const usable = options.filter(
+    (o) => Number.isFinite(o.value) && o.value > 0 && Number.isFinite(o.totalCost) && o.totalCost >= 0,
+  );
+  if (usable.length === 0) return null;
 
   // Deduplicate by denomination: if two cards share the same face value in
   // cents, only the cheapest one can ever improve the solution — keeping
@@ -65,28 +89,73 @@ export function findCheapestGiftCardCombination(
   const cheapestByDenom = new Map<number, { option: GiftCardOption; cents: number }>();
   for (const o of usable) {
     const cents = Math.round(toMicroCents(o.value));
+    if (cents <= 0) continue;
     const existing = cheapestByDenom.get(cents);
     if (!existing || o.totalCost < existing.option.totalCost) {
       cheapestByDenom.set(cents, { option: o, cents });
     }
   }
-  const dedupedOptions = [...cheapestByDenom.values()].map((e) => e.option);
-  const dedupedCents = [...cheapestByDenom.keys()];
 
-  const maxCardCents = Math.max(...dedupedCents);
-  // Search a little past the target: the optimal solution never needs to
-  // land more than one card's value beyond it.
-  const upperBound = target + maxCardCents;
+  const deduped = [...cheapestByDenom.values()];
+  if (deduped.length === 0) return null;
+
+  const dedupedCents = deduped.map((e) => e.cents);
+  const dedupedOptions = deduped.map((e) => e.option);
+
+  // Compute GCD across all card denominations in cents.
+  // For currencies like IDR (cards in multiples of 25,000 IDR), KRW (10,000 KRW),
+  // TRY (250 TRY), or whole-dollar USD/EUR, this reduces the DP table from
+  // hundreds of millions of entries down to tens or hundreds, preventing fatal V8 OOM crashes.
+  let step = dedupedCents[0];
+  for (let i = 1; i < dedupedCents.length; i++) {
+    step = gcd(step, dedupedCents[i]);
+  }
+  if (step <= 0) step = 1;
+
+  const cardUnits = dedupedCents.map((c) => Math.round(c / step));
+  const targetCents = Math.ceil(toMicroCents(targetValue));
+  let targetUnits = Math.ceil(targetCents / step);
+
+  const maxCardUnits = Math.max(...cardUnits);
+
+  // Identify the most cost-efficient card (cost per unit of face value).
+  let bestCardIdx = 0;
+  let bestEfficiency = Infinity;
+  for (let i = 0; i < dedupedOptions.length; i++) {
+    const eff = dedupedOptions[i].totalCost / cardUnits[i];
+    if (eff < bestEfficiency || (eff === bestEfficiency && cardUnits[i] > cardUnits[bestCardIdx])) {
+      bestEfficiency = eff;
+      bestCardIdx = i;
+    }
+  }
+
+  // If the target is excessively large (e.g. from high-denomination currencies or unusual overrides),
+  // pre-allocate the bulk of the target with the most cost-efficient card.
+  // Keep a safe buffer so the DP solver can find the optimal combination near the boundary.
+  let bulkCount = 0;
+  const maxSafeTarget = 20000;
+  if (targetUnits > maxSafeTarget) {
+    const margin = Math.min(10000, maxCardUnits * 2);
+    bulkCount = Math.floor((targetUnits - margin) / cardUnits[bestCardIdx]);
+    if (bulkCount > 0) {
+      targetUnits -= bulkCount * cardUnits[bestCardIdx];
+    }
+  }
+
+  const upperBound = targetUnits + maxCardUnits;
+  if (upperBound > 100000) {
+    return null;
+  }
 
   const bestCost = new Array<number>(upperBound + 1).fill(Infinity);
-  const choice = new Array<number>(upperBound + 1).fill(-1);
+  const choice = new Int32Array(upperBound + 1).fill(-1);
   bestCost[0] = 0;
 
   for (let amount = 1; amount <= upperBound; amount++) {
     for (let i = 0; i < dedupedOptions.length; i++) {
-      const cc = dedupedCents[i];
-      if (cc <= 0 || cc > amount) continue;
-      const prev = amount - cc;
+      const cu = cardUnits[i];
+      if (cu <= 0 || cu > amount) continue;
+      const prev = amount - cu;
       if (bestCost[prev] === Infinity) continue;
       const cost = bestCost[prev] + dedupedOptions[i].totalCost;
       if (cost < bestCost[amount]) {
@@ -99,32 +168,38 @@ export function findCheapestGiftCardCombination(
   // Cheapest reachable amount at or above the target.
   let bestAmount = -1;
   let bestAmountCost = Infinity;
-  for (let amount = target; amount <= upperBound; amount++) {
+  for (let amount = targetUnits; amount <= upperBound; amount++) {
     if (bestCost[amount] < bestAmountCost) {
       bestAmountCost = bestCost[amount];
       bestAmount = amount;
     }
   }
-  if (bestAmount === -1) return null;
+  if (bestAmount === -1 || bestAmountCost === Infinity) return null;
 
   const counts = new Map<string, number>();
+  if (bulkCount > 0) {
+    const bulkCard = dedupedOptions[bestCardIdx];
+    counts.set(bulkCard.id, bulkCount);
+  }
+
   let remaining = bestAmount;
   while (remaining > 0) {
     const i = choice[remaining];
-    if (i === -1) break; // unreachable amount, shouldn't happen given bestAmount check
+    if (i === -1) break;
     const card = dedupedOptions[i];
     counts.set(card.id, (counts.get(card.id) ?? 0) + 1);
-    remaining -= dedupedCents[i];
+    remaining -= cardUnits[i];
   }
 
   const cards = [...counts.entries()].map(([id, quantity]) => ({ id, quantity }));
-  const totalValue =
-    cards.reduce((sum, c) => {
-      const card = dedupedOptions.find((o) => o.id === c.id)!;
-      return sum + card.value * c.quantity;
-    }, 0) ?? 0;
+  const totalCost =
+    Math.round((bestAmountCost + bulkCount * dedupedOptions[bestCardIdx].totalCost) * 100) / 100;
+  const totalValue = cards.reduce((sum, c) => {
+    const card = dedupedOptions.find((o) => o.id === c.id);
+    return sum + (card ? card.value * c.quantity : 0);
+  }, 0);
 
-  return { totalValue, totalCost: bestAmountCost, cards };
+  return { totalValue, totalCost, cards };
 }
 
 export interface PricingSettings {
