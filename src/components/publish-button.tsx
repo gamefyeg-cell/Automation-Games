@@ -20,13 +20,18 @@ export function PublishButton(props: PublishInput) {
 
   return (
     <span className="inline-flex items-center gap-2">
-      <button onClick={handleClick} disabled={pending} className={buttonClass("secondary", "sm")}>
+      <button
+        onClick={handleClick}
+        disabled={pending}
+        title="Publish listing and push automatically to your Gamefy website"
+        className={buttonClass("secondary", "sm")}
+      >
         {pending ? (
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
         ) : (
           <Upload className="h-3.5 w-3.5" />
         )}
-        Publish
+        Publish to Web
       </button>
       {status && (
         <span
