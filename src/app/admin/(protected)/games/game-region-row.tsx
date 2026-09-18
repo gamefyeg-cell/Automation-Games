@@ -7,17 +7,11 @@ import { Tr, Td } from "@/components/ui/table";
 import { RegionReportDetail } from "@/components/region-report-detail";
 import type { RegionReportResult } from "@/lib/pricing/report";
 import type { Platform } from "@/lib/supabase/database.types";
+import { formatDateTime, formatRelativeTime } from "@/lib/utils/time";
 import type { PriceChange } from "./price-change";
 import { getGameRegionReport } from "./actions";
 import { DeleteRegionButton } from "./delete-region-button";
-
-function relative(iso: string): string {
-  const days = (Date.now() - new Date(iso).getTime()) / 86_400_000;
-  if (days < 1) return "today";
-  if (days < 2) return "yesterday";
-  if (days < 14) return `${Math.round(days)}d ago`;
-  return `${Math.round(days / 7)}w ago`;
-}
+import { RefreshRegionButton } from "./refresh-region-button";
 
 function ChangeCell({ change }: { change: PriceChange | null }) {
   if (!change || change.kind === "none") return <span className="text-zinc-600">—</span>;
@@ -38,7 +32,11 @@ function ChangeCell({ change }: { change: PriceChange | null }) {
   return (
     <span className="inline-flex items-center gap-1.5">
       <Badge tone={tone}>{text}</Badge>
-      {change.since && <span className="text-[11px] text-zinc-600">was {relative(change.since)}</span>}
+      {change.since && (
+        <span className="text-[11px] text-zinc-500" title={formatDateTime(change.since)}>
+          was {formatRelativeTime(change.since)}
+        </span>
+      )}
     </span>
   );
 }
@@ -52,6 +50,7 @@ export interface GameRegionRowData {
   currentPrice: number;
   discountPercent: number;
   saleActive: boolean;
+  lastUpdated?: string;
 }
 
 /**
@@ -100,7 +99,19 @@ export function GameRegionRow({
           </span>
         </Td>
         <Td muted>
-          {region.countryCode} ({region.currency})
+          <div className="flex flex-col">
+            <span className="font-medium text-zinc-300">
+              {region.countryCode} <span className="text-xs font-normal text-zinc-500">({region.currency})</span>
+            </span>
+            {region.lastUpdated && (
+              <span
+                className="text-[11px] text-zinc-500"
+                title={formatDateTime(region.lastUpdated)}
+              >
+                synced {formatRelativeTime(region.lastUpdated)}
+              </span>
+            )}
+          </div>
         </Td>
         <Td align="right" muted>
           {region.originalPrice}
@@ -121,9 +132,13 @@ export function GameRegionRow({
         </Td>
         <Td align="right">
           {/* Row's onClick would also fire on this click; stop it from toggling the row too. */}
-          <span onClick={(e) => e.stopPropagation()}>
+          <div
+            className="inline-flex items-center justify-end gap-1"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <RefreshRegionButton id={region.id} label={label} platform={platform} />
             <DeleteRegionButton id={region.id} label={label} platform={platform} />
-          </span>
+          </div>
         </Td>
       </Tr>
 

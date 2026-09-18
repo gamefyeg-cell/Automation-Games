@@ -425,7 +425,7 @@ export async function syncProductToGamefyStore(
     let isUpdate = false;
 
     if (targetProductId) {
-      // 2. Product exists → PATCH
+      // 2. Product exists → PATCH product fields
       const patchBody: Record<string, unknown> = {
         publisher: payload.publisher ?? undefined,
         description: payload.description ?? undefined,
@@ -446,6 +446,43 @@ export async function syncProductToGamefyStore(
 
       if (patchRes.ok) {
         isUpdate = true;
+
+        // ── Sync variant prices ────────────────────────────────────────────
+        // Price lives on the variant, not the product — always update it.
+        const existingVariants = existing?.variants ?? [];
+
+        if (existingVariants.length > 0) {
+          // Update ALL existing variants to the new price
+          for (const v of existingVariants) {
+            await fetch(`${baseUrl}/api/v1/variants/${v.id}`, {
+              method: "PATCH",
+              headers,
+              body: JSON.stringify({
+                price,
+                cost: payload.cost ?? null,
+                currency,
+              }),
+            }).catch(() => null);
+          }
+        } else {
+          // No variants yet → create one
+          await fetch(`${baseUrl}/api/v1/products/${targetProductId}/variants`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              price,
+              cost: payload.cost ?? null,
+              currency,
+              platform: platform || "PC",
+              saleMode: "KEY",
+              deliveryMethod: "AUTO_KEY",
+              stockMode: "MANUAL",
+              stockQty: 0,
+              regionLockType: "NONE",
+              active: true,
+            }),
+          }).catch(() => null);
+        }
       } else {
         // If PATCH fails, fall through to create
         targetProductId = undefined;
